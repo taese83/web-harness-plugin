@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+exec node "$PLUGIN_ROOT/packages/web-harness-console/server.mjs" --root "${CLAUDE_PROJECT_DIR:-$PWD}" "$@"

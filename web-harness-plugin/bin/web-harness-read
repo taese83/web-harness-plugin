@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET="${1:-}"
+case "$TARGET" in
+  ''|/*|*..*) echo "web-harness-read: invalid path: $TARGET" >&2; exit 2;;
+esac
+RESOLVED="$PLUGIN_ROOT/$TARGET"
+if [ -f "$RESOLVED" ]; then
+  exec cat "$RESOLVED"
+elif [ -d "$RESOLVED" ]; then
+  exec ls -1 "$RESOLVED"
+else
+  echo "web-harness-read: not found in plugin payload: $TARGET" >&2
+  exit 2
+fi

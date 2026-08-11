@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+NAME="${1:-}"
+case "$NAME" in
+  ''|*..*|*[!a-z0-9/-]*) echo "web-harness-script: invalid script name: $NAME" >&2; exit 2;;
+esac
+shift
+SCRIPT="$PLUGIN_ROOT/.claude/scripts/$NAME.mjs"
+if [ ! -f "$SCRIPT" ]; then
+  echo "web-harness-script: not part of the plugin runtime: $NAME" >&2
+  exit 2
+fi
+exec node "$SCRIPT" "$@"

@@ -1,0 +1,14 @@
+{
+  "name": "web-harness-marketplace",
+  "description": "Distribution marketplace for the web-harness multi-agent web development plugin.",
+  "owner": {
+    "name": "taese83"
+  },
+  "plugins": [
+    {
+      "name": "web-harness",
+      "source": "./web-harness-plugin",
+      "description": "Multi-agent web development harness — planning, design, implementation, QA pipeline with an approval-gated local console."
+    }
+  ]
+}
