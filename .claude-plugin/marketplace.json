@@ -8,7 +8,8 @@
     {
       "name": "web-harness",
       "source": "./web-harness-plugin",
-      "description": "Multi-agent web development harness — planning, design, implementation, QA pipeline with an approval-gated local console."
+      "description": "Multi-agent web development harness — planning, design, implementation, QA pipeline with an approval-gated local console.",
+      "license": "MIT"
     }
   ]
 }
