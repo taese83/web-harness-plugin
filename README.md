@@ -15,4 +15,4 @@ Claude Code에서:
 
 - 버전: 0.1.2
 - 스킬 30 · 에이전트 98 · 안전 훅 5종
-- always-on 컨텍스트 비용 약 10k tokens/세션 — 사용하지 않을 때는 `/plugin disable web-harness@web-harness-marketplace`
+- always-on 컨텍스트 비용 약 10k tokens/세션(+ `_workspace/` 하네스 관리 프로젝트에서만 SessionStart 재진입 안내 수 줄) — 사용하지 않을 때는 `/plugin disable web-harness@web-harness-marketplace`
