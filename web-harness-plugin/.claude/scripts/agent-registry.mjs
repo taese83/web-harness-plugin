@@ -62,7 +62,8 @@ export const AGENT_OWNERSHIP = {
     /^_workspace\/02_design\/ai-architecture\.md$/,
     /^_workspace\/02_design\/cost-latency-budget\.md$/,
   ],
-  'ai-threat-modeler': [/^_workspace\/02_design\/ai-threat-model\.md$/],
+  // ai-threat-model은 search-portal 파일럿 실측(22.5KB>20KB)으로 sharded 허용 — 결함 4·5호와 동일 클래스 3번째 재현
+  'ai-threat-modeler': [/^_workspace\/02_design\/ai-threat-model(?:\.md|\/.+)$/],
   'analytics-agent-builder': [
     /^packages\/semantic-model\//,
     /^packages\/analytics-agent\//,
@@ -185,6 +186,9 @@ export const AGENT_OWNERSHIP = {
     appPath('src/mocks/(?:handlers/index\\.ts|browser\\.ts|server\\.ts)$'),
     appPath('\\.env(?:\\.[^.]+)?$'),
     exactAppFile('\\.gitignore'),
+    // vite-serverless-hybrid의 루트 api/(핸들러+_lib 가드)는 서버측 shared 런타임 기반이다 —
+    // search-portal 파일럿 실측: hybrid greenfield에서 api/ 소유자가 레지스트리에 없었음(결함 13호)
+    appPath('api/'),
   ],
   'seo-meta-builder': [
     /^_workspace\/02_design\/seo-spec(?:\.md|\/.+)$/,
@@ -213,7 +217,9 @@ export const AGENT_OWNERSHIP = {
     appPath('e2e/.+\\.spec\\.ts$'),
   ],
   'tooling-scaffolder': [
-    appPath('(?:tsconfig(?:\\.[^.]+)?\\.json|vite\\.config\\.ts|vitest\\.config\\.ts|playwright\\.config\\.ts)$'),
+    // vitest 변형 config(vitest.production.config.ts 등)는 tsconfig와 동일한 가변 그룹 관용구 —
+    // search-portal 파일럿 실측(결함 12호: production-boundary config 소유 공백으로 Write 차단)
+    appPath('(?:tsconfig(?:\\.[^.]+)?\\.json|vite\\.config\\.ts|vitest(?:\\.[^.]+)?\\.config\\.ts|playwright\\.config\\.ts)$'),
     exactAppFile('src/vite-env\\.d\\.ts'),
     /^(?:eslint\.config\.js|\.prettierrc)$/,
     appPath('eslint\\.config\\.js$'),

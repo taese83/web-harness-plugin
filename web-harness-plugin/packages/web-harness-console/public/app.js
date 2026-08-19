@@ -169,6 +169,8 @@ const showMessage = (message, error = false) => {
   elements.message.style.borderColor = error ? '#fda29b' : ''
   elements.message.style.color = error ? '#b42318' : ''
   elements.message.style.background = error ? '#fef3f2' : ''
+  // 오류 배너는 상단 고정 요소라 카드 위치에서 클릭한 사용자에게 안 보인다("반응 없음" 실측)
+  if (message && error) elements.message.scrollIntoView({behavior: 'smooth', block: 'nearest'})
 }
 
 const api = async path => {
@@ -192,7 +194,11 @@ const mutateApi = async (path, body, idempotencyKey, intent = 'create-change-req
     body: JSON.stringify(body),
   })
   const payload = await response.json()
-  if (!response.ok) throw new Error(payload.error?.message ?? `HTTP ${response.status}`)
+  if (!response.ok) {
+    const error = new Error(payload.error?.message ?? `HTTP ${response.status}`)
+    error.code = payload.error?.code ?? null
+    throw error
+  }
   return payload
 }
 
@@ -1161,7 +1167,7 @@ const hasActiveCodexRunForRequest = requestId => (state.detail?.codexRuns ?? [])
 const refreshCodexConnection = async ({announce = false} = {}) => {
   try {
     state.codexConnection = await api('/api/codex/status?refresh=1')
-    if (announce) showMessage(state.codexConnection.connected ? 'Codex CLI 연결을 확인했습니다.' : 'Codex CLI 연결이 필요합니다.', !state.codexConnection.connected)
+    if (announce) showMessage(state.codexConnection.connected ? '실행기 연결을 확인했습니다.' : '실행기 연결이 필요합니다.', !state.codexConnection.connected)
     renderContent()
   } catch (error) {
     showMessage(`실행기 연결 상태를 확인하지 못했습니다: ${error.message}`, true)
@@ -1245,6 +1251,13 @@ const startCodexRun = async ({request, phase, impactRun = null, trigger = null})
       : `${request.id} 격리 변경 후보 생성을 시작했습니다. 완료 후 candidate diff를 검토해 주세요.`)
     renderContent()
   } catch (error) {
+    if (error.code === 'CODEX_IMPACT_STALE') {
+      state.evidenceStaleRunIds = state.evidenceStaleRunIds ?? new Set()
+      if (impactRun?.runId) state.evidenceStaleRunIds.add(impactRun.runId)
+      showMessage('기획·디자인 증거가 변경되어 기존 영향 검토가 만료되었습니다. 카드의 ‘영향 검토 다시 실행’으로 새 검토를 시작해 주세요.', true)
+      renderContent()
+      return
+    }
     showMessage(`실행기 작업을 시작하지 못했습니다: ${error.message}`, true)
     if (trigger?.isConnected) {
       trigger.disabled = false
@@ -1504,7 +1517,7 @@ const openCodexApplyDialog = ({request, impactRun, trigger}) => {
   const revisionDecision = request.latestReviewDecision?.decision === 'REVISION_REQUESTED' ? request.latestReviewDecision : null
   form.append(
     create('header', {className: 'request-dialog-header'}, [
-      create('div', {}, [create('span', {className: 'eyebrow', text: 'CODEX · L2 APPROVAL'}), create('h2', {id: 'codex-apply-title', text: '격리 변경 후보 생성'})]),
+      create('div', {}, [create('span', {className: 'eyebrow', text: '실행기 · L2 APPROVAL'}), create('h2', {id: 'codex-apply-title', text: '격리 변경 후보 생성'})]),
       create('button', {type: 'button', className: 'icon-button', 'aria-label': '변경 적용 닫기', text: '×'}),
     ]),
     create('p', {className: 'request-boundary-copy', text: '실행기 workspace-write 세션은 서버가 만든 temporary candidate만 수정합니다. 정본은 검토 승인 전 변경되지 않으며 commit, push, PR, deploy와 danger-full-access는 허용되지 않습니다.'}),
@@ -1596,7 +1609,7 @@ const appendCodexResult = (card, run, {stale = false} = {}) => {
     || run.result.blockers.length
     || run.candidate?.changedFiles?.length
   ))
-  const runExecutorLabel = run.executor === 'claude-code' ? 'Claude Code' : 'Codex'
+  const runExecutorLabel = '실행기'
   const panel = create('section', {className: `codex-run-panel${hasLongResult ? ' is-scrollable' : ''}`, 'aria-label': `${run.phase} ${runExecutorLabel} 실행`}, [
     create('div', {className: 'codex-run-heading'}, [create('strong', {text: run.phase === 'impact' ? `${runExecutorLabel} 영향 검토` : `${runExecutorLabel} 변경 적용`}), statusChip(stale ? 'STALE' : codexRunStatus(run))]),
   ])
@@ -1613,10 +1626,14 @@ const appendCodexResult = (card, run, {stale = false} = {}) => {
     if (!stale && run.phase === 'impact' && run.result.outcome === 'BLOCKED') {
       panel.append(create('p', {className: 'codex-run-error', text: '영향 검토가 BLOCKED로 종료되어 적용 단계로 진행할 수 없습니다. Blockers를 확인하고 ‘요청 수정’으로 요청을 갱신하면 새 영향 검토를 시작할 수 있습니다.'}))
     }
-  } else if (run.error) panel.append(create('p', {className: 'codex-run-error', role: 'alert', text: run.error.code === 'CODEX_RUN_TIMED_OUT'
-    ? `${run.error.code}: ${run.error.message} 자동 재시도하지 않았습니다. 영향 범위를 확인한 뒤 ‘변경 적용 다시 실행’을 사용하세요.`
-    : `${run.error.code}: ${run.error.message}`}))
-  else panel.append(create('p', {className: 'codex-run-summary', text: run.status === 'PENDING' ? '실행을 준비하고 있습니다.' : 'Codex가 현재 repository와 요청을 확인하고 있습니다.'}))
+  } else if (run.error) {
+    // 오류 코드는 API 계약이라 저장값을 바꾸지 않고 표시에서만 실행기 중립화한다
+    const displayCode = String(run.error.code ?? '').replace(/^(?:UNSAFE_)?CODEX_/, 'EXECUTOR_')
+    panel.append(create('p', {className: 'codex-run-error', role: 'alert', text: run.error.code === 'CODEX_RUN_TIMED_OUT'
+      ? `${displayCode}: ${run.error.message} 자동 재시도하지 않았습니다. 영향 범위를 확인한 뒤 ‘변경 적용 다시 실행’을 사용하세요.`
+      : `${displayCode}: ${run.error.message}`}))
+  }
+  else panel.append(create('p', {className: 'codex-run-summary', text: run.status === 'PENDING' ? '실행을 준비하고 있습니다.' : '실행기가 현재 repository와 요청을 확인하고 있습니다.'}))
   const contextMetrics = run.impactContext
     ? `Context ${run.impactContext.documentCount} docs · ${Number(run.impactContext.manifestBytes).toLocaleString('ko-KR')} bytes`
     : null
@@ -1640,17 +1657,17 @@ const renderChanges = () => {
   const connection = state.codexConnection
   const connectionAction = create('button', {type: 'button', className: 'secondary-button', text: '연결 다시 확인'})
   connectionAction.addEventListener('click', () => refreshCodexConnection({announce: true}))
-  const executorLabel = connection?.executor === 'claude-code' ? 'Claude Code' : 'Codex'
+  const executorLabel = '실행기'
   const candidateReasons = connection?.candidates ?? (connection ? [connection] : [])
   const noCliInstalled = candidateReasons.length > 0 && candidateReasons.every(candidate => String(candidate.reason ?? '').endsWith('NOT_INSTALLED') || String(candidate.reason ?? '').endsWith('UNAVAILABLE'))
   const connectionPanel = create('section', {className: `codex-connection-panel ${connection?.connected ? 'is-connected' : 'is-disconnected'}`}, [
     create('div', {}, [
-      create('div', {className: 'codex-connection-title'}, [create('strong', {text: `${connection?.connected ? executorLabel : 'AI'} execution`}), statusChip(connection?.connected ? 'CONNECTED' : 'CONNECTION_REQUIRED')]),
+      create('div', {className: 'codex-connection-title'}, [create('strong', {text: '실행기 연결'}), statusChip(connection?.connected ? 'CONNECTED' : 'CONNECTION_REQUIRED')]),
       create('p', {text: connection?.connected
-        ? `${connection.version ?? `${executorLabel} CLI`} · 저장된 ${executorLabel} CLI 인증을 사용합니다. 요청 등록과 실행 승인은 분리됩니다.`
+        ? '저장된 실행기 인증을 사용합니다. 요청 등록과 실행 승인은 분리됩니다.'
         : noCliInstalled
-          ? '사용 가능한 실행기(Codex CLI 또는 Claude Code CLI)를 찾지 못했습니다. 하나를 설치한 뒤 Console 서버를 다시 시작하세요.'
-          : '실행기 CLI 인증이 필요합니다. 터미널에서 `codex login` 또는 Claude Code 로그인을 완료한 뒤 다시 확인하세요.'}),
+          ? '사용 가능한 실행기 CLI를 찾지 못했습니다. 실행기를 설치한 뒤 Console 서버를 다시 시작하세요.'
+          : '실행기 CLI 인증이 필요합니다. 터미널에서 실행기 로그인을 완료한 뒤 다시 확인하세요.'}),
     ]),
     connectionAction,
   ])
@@ -1662,9 +1679,13 @@ const renderChanges = () => {
     const requestGrid = create('div', {className: 'request-history-grid'})
     for (const request of requests) {
       const latestImpactRun = latestCodexRun(request.id, 'impact')
-      const impactRun = latestCurrentCodexRun(request, 'impact')
+      // 서버의 stale 판정은 요청 개정 축 + 증거(contextDigest) 축 2겹이다. 클라이언트는
+      // 증거 축을 재계산할 수 없어, apply 409(CODEX_IMPACT_STALE)에서 표시해 둔 run을
+      // 만료로 취급해 "영향 검토 다시 실행" 경로를 연다.
+      const impactRun0 = latestCurrentCodexRun(request, 'impact')
+      const impactRun = impactRun0 && state.evidenceStaleRunIds?.has(impactRun0.runId) ? null : impactRun0
       const applyRun = latestCodexRun(request.id, 'apply')
-      const staleImpact = Boolean(latestImpactRun && !runMatchesCurrentRequest(latestImpactRun, request))
+      const staleImpact = Boolean(latestImpactRun && (!runMatchesCurrentRequest(latestImpactRun, request) || state.evidenceStaleRunIds?.has(latestImpactRun.runId)))
       const reviewDecision = reviewDecisionForRun(request, applyRun)
       const targetButton = create('button', {type: 'button', className: 'inline-link-button', text: request.context.subFeatureId ?? request.context.featureId ?? '프로젝트(부트스트랩)'})
       targetButton.addEventListener('click', () => {
@@ -1722,7 +1743,7 @@ const renderChanges = () => {
         // 대상 없는 CR(bootstrap·newFeature)은 같은 파이프라인이 기획 초안 생성으로 동작한다.
         const targetlessCr = request.context?.featureId === null && (request.context?.bootstrap || request.context?.newFeature)
         const impactLabel = targetlessCr ? '기획 정찰' : '영향 검토'
-        const impactButton = create('button', {type: 'button', className: 'secondary-button', text: latestImpactRun ? `${impactLabel} 다시 실행` : `${executorLabel} ${impactLabel}`, disabled: !connection?.connected || active})
+        const impactButton = create('button', {type: 'button', className: 'secondary-button', text: latestImpactRun ? `${impactLabel} 다시 실행` : impactLabel, disabled: !connection?.connected || active})
         impactButton.addEventListener('click', () => startCodexRun({request, phase: 'impact', trigger: impactButton}))
         actions.append(impactButton)
       } else if (!request.latestReviewDecision && impactRun.status === 'COMPLETED' && impactRun.result?.outcome === 'READY' && (!applyRun || ['FAILED', 'TIMED_OUT', 'INTERRUPTED'].includes(applyRun.status))) {

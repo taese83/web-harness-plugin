@@ -334,9 +334,18 @@ const projectId = relativePath => `${basename(relativePath || 'root').replace(/[
 const scanProject = (repositoryRoot, root) => {
   const relativePath = toPosix(relative(repositoryRoot, root)) || '.'
   const documents = PHASES.flatMap(phase => walkDocuments(root, phase))
+  // feature-plan은 sharding 계약상 flat(.md) 또는 디렉토리(feature-plan/) 형태다
+  // (search-portal 파일럿 실측 — flat 완전 일치만 찾으면 sharded 프로젝트에서 FEAT 0으로 보임).
+  // 디렉토리 형태면 절 파일들을 이어붙여 파싱한다: feature-list.md(FEAT 표)를 앞에 두어
+  // FEAT 정의 순서를 보존하고, INDEX.md는 절 목록 표뿐이라 파서 헤더에 매칭되지 않는다.
+  const featurePlanShards = documents
+    .filter(document => document.path.startsWith('_workspace/01_plan/feature-plan/'))
+    .sort((left, right) => Number(right.path.endsWith('/feature-list.md')) - Number(left.path.endsWith('/feature-list.md')) || left.path.localeCompare(right.path))
   const featurePlan = documents.find(document => document.path === '_workspace/01_plan/feature-plan.md')
+  const featurePlanSource = featurePlan?.content
+    ?? (featurePlanShards.length ? featurePlanShards.map(document => document.content ?? '').join('\n\n') : undefined)
   const preview = summarizePreview(root)
-  const features = parseFeaturePlan(featurePlan?.content).map(feature => {
+  const features = parseFeaturePlan(featurePlanSource).map(feature => {
     const previewFeature = preview.features.find(item => item.featureId === feature.featureId)
     const subFeatures = feature.subFeatures.map(subFeature => {
       const previewSubFeature = previewFeature?.subFeatures.find(item => item.subFeatureId === subFeature.subFeatureId)
@@ -541,7 +550,7 @@ export class WorkspaceCatalog {
     if (!request) throw Object.assign(new Error('Change Request was not found'), {code: 'CHANGE_REQUEST_NOT_FOUND', status: 404})
     const requestRuns = (options.codexRuns ?? []).filter(run => run.changeRequestId === changeRequestId)
     if (requestRuns.some(run => ['PENDING', 'RUNNING'].includes(run.status))) {
-      throw Object.assign(new Error('Wait for the active Codex run to finish before revising the request'), {code: 'CHANGE_REQUEST_REVISION_RUN_ACTIVE', status: 409})
+      throw Object.assign(new Error('Wait for the active executor run to finish before revising the request'), {code: 'CHANGE_REQUEST_REVISION_RUN_ACTIVE', status: 409})
     }
     if (requestRuns.some(run => run.phase === 'apply')) {
       throw Object.assign(new Error('The request cannot be revised after change application has started; use the candidate review flow'), {code: 'CHANGE_REQUEST_REVISION_APPLY_STARTED', status: 409})
@@ -561,7 +570,7 @@ export class WorkspaceCatalog {
     if (!request) return {deleted: false, artifactCount: 0}
     const requestRuns = codexRuns.filter(run => run.changeRequestId === changeRequestId)
     if (requestRuns.some(run => ['PENDING', 'RUNNING'].includes(run.status))) {
-      throw Object.assign(new Error('Wait for the active Codex run to finish before deleting the request'), {code: 'CHANGE_REQUEST_DELETE_RUN_ACTIVE', status: 409})
+      throw Object.assign(new Error('Wait for the active executor run to finish before deleting the request'), {code: 'CHANGE_REQUEST_DELETE_RUN_ACTIVE', status: 409})
     }
     const verifiedReviews = listChangeRequestReviews(project.root, changeRequestId, {strict: true})
     if (verifiedReviews.some(decision => decision.decision === 'APPROVED')) {

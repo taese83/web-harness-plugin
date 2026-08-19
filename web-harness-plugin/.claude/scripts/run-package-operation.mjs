@@ -209,10 +209,13 @@ if (initializerPackage) {
 }
 const command = operation === 'git-init'
   ? [gitExecutable, 'init', '--template=']
+  // --ignore-workspace: 생성 프로젝트는 계약상 독립 release root다 — 중첩 dogfood repo에서
+  // pnpm이 상위 워크스페이스로 흡수해 루트 lockfile을 조작하는 것을 차단(search-portal 파일럿
+  // 실측, 결함 14호: "Scope: all 2 workspace projects"로 프로젝트-로컬 lockfile 미생성)
   : operation === 'lockfile'
-    ? [pnpmExecutable, 'install', '--lockfile-only', '--ignore-scripts', '--ignore-pnpmfile']
+    ? [pnpmExecutable, 'install', '--lockfile-only', '--ignore-scripts', '--ignore-pnpmfile', '--ignore-workspace']
     : operation === 'install'
-      ? [pnpmExecutable, 'install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile']
+      ? [pnpmExecutable, 'install', '--frozen-lockfile', '--ignore-scripts', '--ignore-pnpmfile', '--ignore-workspace']
     : operation === 'msw-init'
       ? process.platform === 'win32'
         ? [pnpmExecutable, 'exec', 'msw', 'init', 'public', '--save']
