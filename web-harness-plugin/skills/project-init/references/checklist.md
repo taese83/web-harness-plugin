@@ -60,11 +60,18 @@
 - `{app}/public/`
 
 ### 앱 진입점
+
+**UI_LANE 분기**: 아래 목록은 `mui` 레인 기준이다. `tailwind-shadcn` 레인이면 표기된 섹션 대신
+`*_TAILWIND` 대응 섹션을 쓴다 — `APP_PACKAGE_JSON_TAILWIND`(의존성 교체분), `VITE_CONFIG_TAILWIND`,
+`APP_TSX_TAILWIND`, `APP_STYLE_CSS_TAILWIND`, `ERROR_FALLBACK_TAILWIND`, `HOME_PAGE_TAILWIND`,
+`NOT_FOUND_PAGE_TAILWIND`. 이 레인은 `theme.ts`를 만들지 않고(토큰=style.css `@theme`),
+`src/shared/lib/utils.ts`(`UTILS_CN_TAILWIND`)를 추가한다. 한 앱에 두 레인을 섞지 않는다.
+
 - `{app}/src/main.tsx` (template section: MAIN_TSX)
 - `{app}/src/vite-env.d.ts` (template section: VITE_ENV_D_TS)
 - `{app}/src/app/App.tsx` (template section: APP_TSX)
 - `{app}/src/app/style.css` (template section: APP_STYLE_CSS)
-- `{app}/src/app/theme.ts` (template section: APP_THEME)
+- `{app}/src/app/theme.ts` (template section: APP_THEME — mui 레인 전용)
 - `{app}/src/app/providers/RouterProvider.tsx` (template section: ROUTER_PROVIDER)
 - `{app}/src/app/routes/index.ts` (template section: ROUTES_INDEX)
 - `{app}/src/app/routes/Routes.tsx` (template section: ROUTES_TSX)
@@ -161,7 +168,7 @@ _(저장소 모드 전용 단계 — 플러그인 배포판에서는 생략한�
 |---|---|
 | `/fsd-scaffold` | FSD 레이어 결정 + 슬라이스 보일러플레이트 |
 | `/pr-drafter` | git diff → 한국어 PR 초안 자동 작성 |
-| `/component-gen` | MUI 컴포넌트 컨벤션 맞게 생성 |
+| `/component-gen` | 선택된 UI 레인(UI_LANE) 컨벤션에 맞게 생성 |
 | `/timeseries-dashboard` | 시계열·실시간 dashboard 설계/구현/검증 |
 | `/ai-app-orchestrator` | AI runtime·tool·보안·평가 통합 |
 | `/ai-eval` | AI 정적 gate와 runtime scenario 검증 |
