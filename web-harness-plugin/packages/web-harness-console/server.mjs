@@ -9,7 +9,7 @@ import {recordImplementationVerification} from './src/change-request-implementat
 import {CodexRunManager} from './src/codex-runs.mjs'
 import {EXECUTOR_KINDS, createExecutorAdapter} from './src/executor-adapters.mjs'
 import {WorkspaceCatalog} from './src/indexer.mjs'
-import {createLiveBasePreviewServer, parseLiveBaseTarget} from './src/live-base-preview.mjs'
+import {createLiveBasePreviewServer, extractHtmlTitle, parseLiveBaseTarget, parseLiveIdentity} from './src/live-base-preview.mjs'
 
 const packageRoot = dirname(fileURLToPath(import.meta.url))
 const CONTENT_TYPES = {
@@ -387,7 +387,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       try {
         const input = await readJsonBody(request)
         const controlProject = catalog.project(String(input?.project ?? ''))
-        const manifest = controlProject ? readDeltaManifest(controlProject.root) : null
+        const manifest = controlProject ? readLiveConfig(controlProject.root) : null
         const target = manifest ? parseLiveBaseTarget(manifest.target) : null
         if (!target) return json(response, 404, errorBody('LIVE_TARGET_NOT_FOUND', 'Project has no valid live-delta target'))
         if (action === 'stop') {
@@ -469,13 +469,16 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       // delta manifest 또는 --live-base 플래그에서만 나온다.
       const healthProjectId = url.searchParams.get('project')
       let target = null
+      let identityManifest = null
       if (healthProjectId) {
         const healthProject = catalog.project(healthProjectId)
-        const manifest = healthProject ? readDeltaManifest(healthProject.root) : null
+        const manifest = healthProject ? readLiveConfig(healthProject.root) : null
         target = manifest ? parseLiveBaseTarget(manifest.target) : null
         if (target && !launchAllowedPorts().has(target.port)) target = null
+        identityManifest = manifest
       } else if (liveBase) {
         target = liveBase.target
+        identityManifest = liveBase.root ? readLiveConfig(liveBase.root) : null
       }
       if (!target) return json(response, 200, {configured: false})
       const startHints = []
@@ -488,13 +491,35 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         }
       } catch { /* launch.json 없음/파싱 실패 — 힌트 생략 */ }
       const managed = liveBaseProcesses.get(target.port)
-      fetch(target.origin, {signal: AbortSignal.timeout(1500), redirect: 'manual'})
-        .then(() => true, () => false)
-        .then(healthy => json(response, 200, {
-          configured: true, target: target.origin, healthy, startHints,
+      const expectedIdentity = parseLiveIdentity(identityManifest?.identity)
+      ;(async () => {
+        let healthy = false
+        // 응답이 오면(상태코드 무관) healthy — 그 위에 신원 판정을 얹는다: 선언이 있으면
+        // HTML <title> 대조(제목 미검출·비-HTML은 fail-closed mismatch), 없으면 undeclared로
+        // 정직 보고. 무응답이면 신원 판정 자체가 불가하므로 null.
+        let identity = expectedIdentity === null ? {state: 'undeclared'} : expectedIdentity.error ? {state: 'invalid'} : null
+        try {
+          const upstream = await fetch(target.origin, {signal: AbortSignal.timeout(1500), redirect: 'manual'})
+          healthy = true
+          if (expectedIdentity && !expectedIdentity.error) {
+            let actualTitle = null
+            try {
+              if ((upstream.headers.get('content-type') ?? '').includes('text/html')) actualTitle = extractHtmlTitle(await upstream.text())
+            } catch { /* 본문 판독 실패 — 제목 미검출로 두어 fail-closed */ }
+            identity = {
+              state: actualTitle !== null && actualTitle.includes(expectedIdentity.titleIncludes) ? 'verified' : 'mismatch',
+              expected: expectedIdentity.titleIncludes,
+              actualTitle,
+            }
+          }
+        } catch { /* 대상 무응답 */ }
+        if (!healthy) identity = null
+        json(response, 200, {
+          configured: true, target: target.origin, healthy, identity, startHints,
           managed: managed?.child ? {entry: managed.entry, startedAt: managed.startedAt} : null,
           checkedAt: new Date().toISOString(),
-        }))
+        })
+      })()
       return
     }
     if (url.pathname === '/api/projects') {
@@ -521,10 +546,18 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       try {
         const proxy = await ensureLiveProxy(project, {allowStart: request.headers['x-web-harness-ui'] === '1'})
         if (proxy?.port) {
+          const declaredIdentity = parseLiveIdentity(readLiveConfig(project.root)?.identity)
           detail.livePreview = {
             url: `http://127.0.0.1:${proxy.port}`,
             target: proxy.target.origin,
             deltaPresent: existsSync(join(project.root, '_workspace', '02_design', 'preview', 'delta', 'bootstrap.mjs')),
+            // 신원 선언 상태를 UI에 노출한다 — 미선언 킷은 차단하지 않되(하위호환)
+            // "target 포트의 앱 신원 미검증" 경고의 데이터 소스가 된다.
+            identity: declaredIdentity === null
+              ? {state: 'undeclared'}
+              : declaredIdentity.error
+                ? {state: 'invalid'}
+                : {state: 'declared', titleIncludes: declaredIdentity.titleIncludes},
           }
         } else if (proxy?.error) {
           detail.livePreviewError = proxy.error
@@ -591,6 +624,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       target: liveBase.target,
       deltaRoot: join(liveBase.root, '_workspace', '02_design', 'preview', 'delta'),
       streamDeltaFile: streamFile,
+      readIdentity: () => parseLiveIdentity(readLiveConfig(liveBase.root)?.identity),
     })
     : null
   let boundLivePreviewPort = liveBase?.port ?? null
@@ -605,6 +639,21 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       return manifest?.mode === 'live-delta' ? manifest : null
     } catch {
       return null
+    }
+  }
+  // 라이브 설정과 디자인 프리뷰의 분리(2026-08-20, search-portal 파일럿 실측): 두 관심사는
+  // 직교한다 — 디자인 프리뷰는 Phase 2 승인 자산("무엇을 만들기로 했나"), 라이브는 운영
+  // 뷰("지금 무엇이 돌고 있나")다. 종전에는 preview/manifest.json의 mode 필드 하나를
+  // 공유해 상호 배타였고, 승인 프리뷰가 있는 그린필드는 라이브 뷰를 켤 수 없었다.
+  // 정본은 이제 별도 파일 preview/live.json({target, identity?})이며, 레거시
+  // manifest(mode:'live-delta')는 브라운필드 하위 호환으로 계속 읽는다 — 두 파일이
+  // 모두 있으면 live.json이 이긴다.
+  const readLiveConfig = projectRoot => {
+    try {
+      const config = JSON.parse(readFileSync(join(projectRoot, '_workspace', '02_design', 'preview', 'live.json'), 'utf8'))
+      return config && typeof config === 'object' ? config : null
+    } catch {
+      return readDeltaManifest(projectRoot)
     }
   }
   // 승인 게이트 dev server 시작/중지(후속 작업 7-②): 명령은 launch.json 항목에서만
@@ -630,30 +679,36 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
     }
   }
   const ensureLiveProxy = (project, {allowStart = false} = {}) => {
-    const manifest = readDeltaManifest(project.root)
-    if (!manifest) return null
     let realRoot
     try {
       realRoot = realpathSync(project.root)
     } catch {
       return null
     }
+    // pinned --live-base는 운영자의 명시 의도다 — 프로젝트 측 live.json/manifest 존재를
+    // 요구하지 않는다(분리 이전에는 manifest 부재가 pinned 경로까지 막았음, 실측 결함).
     if (liveBase && boundLivePreviewPort) {
       try {
         if (realpathSync(liveBase.root) === realRoot) return {port: boundLivePreviewPort, target: liveBase.target}
       } catch { /* 플래그 루트 해석 실패 — 동적 경로로 진행 */ }
     }
+    const manifest = readLiveConfig(project.root)
+    if (!manifest) return null
     const existing = liveProxies.get(realRoot)
     if (existing) return existing.promise ?? existing
     // 실패는 캐시하지 않는다 — manifest/launch.json을 고치면 재시작 없이 복구된다.
     const target = parseLiveBaseTarget(manifest.target)
     if (!target) return {error: 'INVALID_LIVE_TARGET'}
     if (!launchAllowedPorts().has(target.port)) return {error: 'LIVE_TARGET_NOT_IN_LAUNCH'}
+    // 신원 선언의 형식 오류는 미선언으로 강등하지 않고 loud 실패 — 오타가 검사를 조용히
+    // 끄면 안 된다. 대조 자체는 프록시가 HTML 응답마다 수행한다(생성 시 1회가 아니라).
+    if (parseLiveIdentity(manifest.identity)?.error) return {error: 'INVALID_LIVE_IDENTITY'}
     if (!allowStart) return null
     const server = createLiveBasePreviewServer({
       target,
       deltaRoot: join(project.root, '_workspace', '02_design', 'preview', 'delta'),
       streamDeltaFile: streamFile,
+      readIdentity: () => parseLiveIdentity(readLiveConfig(project.root)?.identity),
     })
     const promise = new Promise(resolveEntry => {
       server.once('error', () => {
