@@ -11,7 +11,21 @@ In Claude Code:
 /plugin install web-harness@web-harness-marketplace
 ```
 
-Then use `/web-harness:web-orchestrator`, `/web-harness:web-plan`, `/web-harness:web-console`, and more from any project directory. The local Console (port 4310) and isolated preview (4311) are started against the current project by the `web-harness-console` executable.
+The local Console (port 4310) and isolated preview (4311) are started against the current project by the `web-harness-console` executable.
+
+## Entry-point commands
+
+These are the commands you invoke directly. Everything else this plugin ships is an **internal building block** that the orchestrators call for you (Phase steps, companion setups, AI submodes) — they appear in the `/web-harness:` list but are not meant to be run standalone.
+
+| Command | Use it to |
+|---|---|
+| `/web-harness:web-orchestrator` | Build a complete web app from a description (plan → design → dev → QA). The master entry. |
+| `/web-harness:web-plan` | Produce or refine the plan only (planning facilitation + readiness review). |
+| `/web-harness:feature-add` | Add one feature to a finished project (scoped plan → design → dev → QA loop). |
+| `/web-harness:team-flow` | Ticket-based team development — batch-claim a plan into GitHub Issues on a feature branch, pick up tickets into evidence PRs. |
+| `/web-harness:pr-drafter` | Draft a PR description from the current branch diff. |
+| `/web-harness:web-console` | Open the approval-gated local Console for the current project. |
+| `/web-harness:project-init` | Scaffold an empty project skeleton only (no planning/QA gates). |
 
 First app, cost expectations, and the brownfield path: see the [quickstart](https://github.com/taese83/web-harness/blob/main/docs/quickstart.md).
 
