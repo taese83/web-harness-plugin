@@ -29,6 +29,6 @@ These are the commands you invoke directly. Everything else this plugin ships is
 
 First app, cost expectations, and the brownfield path: see the [quickstart](https://github.com/taese83/web-harness/blob/main/docs/quickstart.md).
 
-- Version: 0.1.2
+- Version: 0.2.0
 - 31 skills · 98 agents · 5 safety hooks
 - Always-on context cost ≈10k tokens/session (plus a few SessionStart re-entry lines only in `_workspace/` harness-managed projects) — disable when idle: `/plugin disable web-harness@web-harness-marketplace`
