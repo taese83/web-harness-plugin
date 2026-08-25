@@ -4,6 +4,7 @@ import {
   isTrustedPreviewMessageSource,
   parsePreviewChangeRequestMessage,
 } from './preview-message-contract.mjs'
+import {currentGateId, deriveGates, deriveNextActions, derivePulse, deriveTicketStages} from './gate-rail.mjs'
 
 const elements = {
   projectList: document.querySelector('#project-list'),
@@ -34,6 +35,8 @@ const state = {
   designPane: 'design',
   // Development 서브탭(2026-08-24): 팀 워크플로우 보드(workflow)가 기본, 라이브 서버 운영(live).
   developmentPane: 'workflow',
+  // Work flow 상태 필터(all|issued|unclaimed|local) — 탭 재진입에도 유지.
+  workflowFilter: 'all',
   // QA 탭이 TC 상세(given/when/then)의 집 — Features에서 링크로 들어오면 이 TC로 포커스.
   qaFocusTestCaseId: null,
   focusChangeRequestId: null,
@@ -341,10 +344,12 @@ const renderProjectNavigation = () => {
     button.append(
       create('strong', {text: project.name}),
       create('small', {text: project.relativePath}),
+      // 상태 워드마크는 상태색+글자 병행(원리 5) — 게이지는 만들지 않는다: 목록 payload에
+      // 근거 있는 진행률 소스가 없어 추정 막대가 되기 때문(components.md 게이지 항목은 승인 대기).
       create('span', {className: 'project-button-meta'}, [
-        create('span', {text: `P ${project.phaseCounts.plan}`}),
-        create('span', {text: `D ${project.phaseCounts.design}`}),
-        create('span', {text: project.preview.status}),
+        create('span', {className: 'project-count', text: `P ${project.phaseCounts.plan}`}),
+        create('span', {className: 'project-count', text: `D ${project.phaseCounts.design}`}),
+        create('span', {className: `project-state state-${(project.preview.status ?? 'ABSENT').toLowerCase()}`, text: project.preview.status}),
       ]),
     )
     button.addEventListener('click', () => selectProject(project.id))
@@ -571,6 +576,53 @@ const openChangeRequestDialog = ({feature = null, subFeature = null, anchor = nu
   form.elements.title.focus()
 }
 
+// 게이트 레일 — 파이프라인 6단계를 화면 척추로(정체성). 상태·근거는 전부 실측 파생이며
+// 근거 없는 단계는 '판정 불가'로 표기한다(지어내지 않음).
+const renderGateRail = detail => {
+  const gates = deriveGates(detail)
+  const nowId = currentGateId(gates)
+  const nodes = []
+  gates.forEach((gate, index) => {
+    if (index > 0) nodes.push(create('span', {className: `gate-link${gates[index - 1].status === 'pass' ? ' is-done' : ''}`}))
+    const tone = gate.id === nowId && gate.status !== 'pass' ? 'is-now' : `is-${gate.status}`
+    nodes.push(create('div', {className: `gate ${tone}`, title: `${gate.label} — ${gate.detail}`}, [
+      create('span', {className: 'gate-node', text: gate.status === 'pass' ? '✓' : gate.status === 'unknown' ? '?' : String(index + 1)}),
+      create('span', {className: 'gate-label', text: gate.label}),
+      create('span', {className: 'gate-detail', text: gate.detail}),
+    ]))
+  })
+  return create('div', {className: 'gate-rail', role: 'img',
+    'aria-label': `파이프라인 게이트: ${gates.map(gate => `${gate.label} ${gate.detail}`).join(', ')}`}, nodes)
+}
+
+// '지금 존' — 다음 행동이 주인공(위계). 행동이 없으면 그 사실을 말한다.
+const renderNowZone = detail => {
+  const actions = deriveNextActions(detail)
+  const primary = actions[0] ?? null
+  const nextCard = create('section', {className: `next-card${primary ? '' : ' is-clear'}`}, [
+    create('span', {className: 'next-tag', text: primary ? `NEXT · 지금 필요한 행동 ${actions.length}건` : 'NEXT · 대기 중인 행동 없음'}),
+    create('h2', {text: primary ? primary.title : '지금 필요한 행동이 없습니다'}),
+    create('p', {className: 'next-why', text: primary ? primary.why : '열린 변경 요청·실패 TC·프리뷰 대기·세션 변경이 모두 없습니다. 다음 게이트로 진행할 수 있습니다.'}),
+  ])
+  if (primary) {
+    const acts = create('div', {className: 'next-acts'})
+    for (const action of actions.slice(0, 3)) {
+      const button = create('button', {type: 'button', className: action === primary ? 'next-primary' : 'next-secondary', text: action.title})
+      button.addEventListener('click', () => setTab(action.tab))
+      acts.append(button)
+    }
+    nextCard.append(acts)
+  }
+  const pulse = create('section', {className: 'pulse-card'}, [create('h3', {text: 'PULSE'})])
+  for (const item of derivePulse(detail)) {
+    pulse.append(create('div', {className: 'pulse-row'}, [
+      create('span', {className: 'pulse-label', text: item.label}),
+      create('b', {className: `pulse-value tone-${item.tone}`, text: item.value}),
+    ]))
+  }
+  return create('div', {className: 'now-zone'}, [nextCard, pulse])
+}
+
 const renderOverview = () => {
   const detail = state.detail
   const metrics = create('div', {className: 'metric-grid'}, [
@@ -604,7 +656,14 @@ const renderOverview = () => {
     ]))
     changePanel.append(list)
   }
-  return create('div', {}, [heading('Project overview', '기획과 디자인의 현재 상태를 한눈에 확인합니다.'), metrics, create('div', {className: 'overview-grid'}, [previewPanel, changePanel])])
+  // 순서가 곧 위계(원리 2): 게이트 레일(정체성) → 지금 존(주인공) → 통계·패널(물러남).
+  return create('div', {}, [
+    heading('Project overview', '파이프라인 게이트와 지금 필요한 행동을 먼저 보여줍니다 — 표시는 전부 실측에서 파생합니다.'),
+    renderGateRail(detail),
+    renderNowZone(detail),
+    metrics,
+    create('div', {className: 'overview-grid'}, [previewPanel, changePanel]),
+  ])
 }
 
 const appendMarkdown = (container, source) => {
@@ -686,25 +745,62 @@ const renderDesign = () => {
     })
     return button
   }
+  // 표시 정본 결정(방향 승인 게이트 개정 2026-08-23 반영):
+  //  ① RENDER-VERDICT의 SELECTED_CANDIDATE 마커(구 타일 세대의 기계 근거)
+  //  ② 없으면 approved-render.html(자유 렌더 세대의 승인 정본 — 마커 규약이 없다)
+  //  ③ 둘 다 없으면 후보만 보여주고 "선정 기록 없음"을 말한다(추정 금지)
   const heroCandidate = latest.selectedCandidate
+  const tileSrc = candidate =>
+    `${state.previewOrigin}/${encodeURIComponent(state.projectId)}/__style-tiles/${encodeURIComponent(latest.base)}/${encodeURIComponent(latest.round)}/${encodeURIComponent(candidate)}/index.html`
+  const frame = create('iframe', {
+    className: 'style-tile-frame style-tile-hero-frame',
+    title: heroCandidate
+      ? `${latest.round} ${heroCandidate}`
+      : detail.approvedRender ? '승인 정본 렌더' : `${latest.round} ${latest.candidates[0]}`,
+    src: heroCandidate
+      ? tileSrc(heroCandidate)
+      : detail.approvedRender
+        ? `${state.previewOrigin}/${encodeURIComponent(state.projectId)}/__approved-render`
+        : tileSrc(latest.candidates[0]),
+  })
+  const heroLabel = heroCandidate
+    ? `현재 디자인 · ${heroCandidate}`
+    : detail.approvedRender ? '현재 디자인 · 승인 정본(approved-render)' : '현재 디자인 · 선정 기록 없음'
+  // 후보 전환 — 자유 렌더 라운드는 후보가 곧 비교 대상이라 전부 열람 가능해야 한다.
+  const switcher = create('div', {className: 'style-tile-switcher'})
+  const setActive = (button, src, title) => {
+    frame.src = src
+    frame.title = title
+    for (const sibling of switcher.querySelectorAll('button')) sibling.setAttribute('aria-pressed', String(sibling === button))
+  }
+  if (detail.approvedRender && !heroCandidate) {
+    const approvedButton = create('button', {type: 'button', className: 'secondary-button', text: '승인 정본'})
+    approvedButton.setAttribute('aria-pressed', 'true')
+    approvedButton.addEventListener('click', () => setActive(approvedButton, `${state.previewOrigin}/${encodeURIComponent(state.projectId)}/__approved-render`, '승인 정본 렌더'))
+    switcher.append(approvedButton)
+  }
+  for (const candidate of latest.candidates) {
+    const button = create('button', {type: 'button', className: 'secondary-button', text: candidate.replace(/^candidate-/, '후보 ')})
+    button.setAttribute('aria-pressed', String(candidate === heroCandidate || (!heroCandidate && !detail.approvedRender && candidate === latest.candidates[0])))
+    button.addEventListener('click', () => setActive(button, tileSrc(candidate), `${latest.round} ${candidate}`))
+    switcher.append(button)
+  }
   container.append(create('article', {className: 'panel style-tiles-panel'}, [
     create('div', {className: 'style-tile-hero-head'}, [
-      create('h3', {text: heroCandidate ? `현재 디자인 · ${heroCandidate}` : '현재 디자인 · 선정 기록 없음'}),
-      create('small', {text: `${latest.round} 라운드`}),
+      create('h3', {text: heroLabel}),
+      create('small', {text: `${latest.round} 라운드 · 후보 ${latest.candidates.length}종`}),
     ]),
     create('div', {className: 'style-tile-docs'}, [
       documentButton('README', latest.readmePath),
       documentButton('렌더 판정', latest.renderVerdictPath),
       documentButton('구현 대조표', latest.implementationVerdictPath),
     ]),
-    heroCandidate
-      ? create('figure', {className: 'style-tile-figure'}, [create('iframe', {
-          className: 'style-tile-frame style-tile-hero-frame',
-          title: `${latest.round} ${heroCandidate}`,
-          src: `${state.previewOrigin}/${encodeURIComponent(state.projectId)}/__style-tiles/${encodeURIComponent(latest.round)}/${encodeURIComponent(heroCandidate)}/index.html`,
-        })])
-      : create('p', {className: 'panel-copy', text: '이 라운드의 판정 기록(RENDER-VERDICT.md)에 SELECTED_CANDIDATE 마커가 없어 선정 시안을 표시하지 않습니다. 후보·판정 원문은 Documents 탭과 저장소의 style-tiles 라운드 디렉터리에 보존돼 있습니다.'}),
-  ]))
+    switcher,
+    create('figure', {className: 'style-tile-figure'}, [frame]),
+    heroCandidate || detail.approvedRender
+      ? null
+      : create('p', {className: 'panel-copy', text: '이 라운드에는 판정 마커(RENDER-VERDICT.md의 SELECTED_CANDIDATE)도 승인 정본(approved-render.html)도 없어 선정 시안을 단정하지 않습니다 — 후보만 열람할 수 있습니다.'}),
+  ].filter(Boolean)))
   return container
 }
 
@@ -1999,14 +2095,46 @@ const renderWorkflow = () => {
   const body = create('div', {className: 'workflow-body'}, [create('p', {className: 'panel-copy', text: '불러오는 중…'})])
   container.append(body)
   const statusChip = status => {
-    const tone = {unclaimed: 'status-pending', claimed: 'status-connected', 'pr-linked': 'status-approved', closed: 'status-approved', 'plan-removed': 'status-failed'}[status] ?? 'status-pending'
+    const tone = {unclaimed: 'status-pending', claimed: 'status-connected', 'pr-linked': 'status-approved', closed: 'status-approved', 'plan-removed': 'status-failed', 'local-new': 'status-stale', 'local-modified': 'status-stale'}[status] ?? 'status-pending'
     return create('span', {className: `status-chip ${tone}`, text: status})
   }
+  // 상태 그룹(필터 축): 발급됨 / 발행 대기 / 로컬 작업(미공유) — 미발급 3분할(origin 대조)과 정합.
+  const groupOf = status => (status === 'unclaimed' ? 'unclaimed' : status === 'local-new' || status === 'local-modified' ? 'local' : 'issued')
+  const GROUP_LABELS = [['all', '전체'], ['issued', '발급됨'], ['unclaimed', '발행 대기'], ['local', '로컬 작업(미공유)']]
   ;(async () => {
     try {
       const payload = await fetch(`/api/projects/${encodeURIComponent(state.projectId)}/workflow`).then(r => r.json())
       if (!document.contains(body)) return
       const children = []
+      // 상태 그룹 필터 — 전체/발급됨/발행 대기/로컬 작업을 모아본다(사용자 요청). 필터는 표시만
+      // 바꾸며(행 hidden 토글) 데이터 재조회 없음. 그룹 수는 전 브랜치 합산.
+      const groupCounts = {all: 0, issued: 0, unclaimed: 0, local: 0}
+      for (const card of payload.branches ?? []) for (const ticket of card.tickets ?? []) {
+        groupCounts.all++
+        groupCounts[groupOf(ticket.status)]++
+      }
+      const applyFilter = () => {
+        const filter = state.workflowFilter ?? 'all'
+        for (const rowEl of body.querySelectorAll('.workflow-ticket')) {
+          rowEl.hidden = filter !== 'all' && rowEl.dataset.group !== filter
+        }
+        // 카드 안내 줄도 필터 연동 — 전체 탭에선 모든 안내, 그룹 탭에선 그 그룹 안내만.
+        for (const noticeEl of body.querySelectorAll('[data-notice-group]')) {
+          noticeEl.hidden = filter !== 'all' && noticeEl.dataset.noticeGroup !== filter
+        }
+      }
+      // 상태 필터는 탭으로(사용자 지정) — Work flow|Live 서브탭과 같은 시각 언어(paneTabBar).
+      const filterWrap = create('div', {className: 'workflow-filter'})
+      const renderFilterBar = () => {
+        filterWrap.replaceChildren(paneTabBar(
+          '티켓 상태 필터',
+          GROUP_LABELS.map(([group, label]) => [group, `${label} ${groupCounts[group] ?? 0}`]),
+          state.workflowFilter ?? 'all',
+          group => { state.workflowFilter = group; renderFilterBar(); applyFilter() },
+        ))
+      }
+      renderFilterBar()
+      children.push(filterWrap)
       if ((payload.branches ?? []).length === 0) {
         children.push(create('article', {className: 'panel'}, [
           create('h3', {text: '표시할 작업 브랜치가 없습니다'}),
@@ -2018,14 +2146,27 @@ const renderWorkflow = () => {
         if (card.staleCount > 0) chips.push(create('span', {className: 'status-chip status-stale', text: `stale ${card.staleCount}`}))
         const rows = (card.tickets ?? []).map(ticket => {
           const routeDetail = create('div', {className: 'workflow-route', hidden: true})
+          // 게이트 레일 축소형(components.md: 노드 16px·라벨 없이 sr-only/tooltip) — 티켓도
+          // 파이프라인이다. 단계는 로컬 증명 가능한 3개(청구→PR→완료)뿐이며 배정은 미상이라 없다.
+          const stages = deriveTicketStages(ticket)
+          const miniRail = create('span', {className: 'mini-rail', role: 'img',
+            'aria-label': `단계: ${stages.map(stage => `${stage.label} ${stage.done ? '완료' : '미도달'}`).join(', ')}`})
+          stages.forEach((stage, index) => {
+            if (index > 0) miniRail.append(create('span', {className: `mini-link${stages[index - 1].done ? ' is-done' : ''}`}))
+            miniRail.append(create('span', {className: `mini-node${stage.done ? ' is-done' : ''}`, title: `${stage.label} — ${stage.done ? '완료' : '미도달'}`}))
+          })
           const row = create('li', {className: 'workflow-ticket'}, [
+            miniRail,
             statusChip(ticket.status),
             create('span', {className: 'workflow-ticket-title', text: `${ticket.featureId}${ticket.title ? ` · ${ticket.title}` : ''}${ticket.ticketKey ? `  #${ticket.ticketKey}` : ''}`}),
             ...(ticket.stale ? [create('span', {className: 'status-chip status-stale', text: 'stale'})] : []),
+            ...(ticket.localDrift ? [create('span', {className: 'status-chip status-stale', text: ticket.localDrift === 'deleted-locally' ? '로컬 삭제됨' : '로컬 수정 미푸시'})] : []),
             ...(ticket.prUrl ? [create('a', {href: ticket.prUrl, target: '_blank', rel: 'noopener', text: 'PR'})] : []),
           ])
-          // 선택 라우팅(§4-3, read-only 판정): 집을 수 있는 상태만 라우트 확인 버튼 노출.
-          if (ticket.status === 'unclaimed' || ticket.status === 'claimed') {
+          row.dataset.group = groupOf(ticket.status)
+          // 선택 라우팅(§4-3, read-only 판정): 발급돼 집을 수 있는 상태(claimed)만 버튼 노출.
+          // 발행 대기·로컬 작업 안내는 행 반복 대신 카드 상단 한 줄(사용자 지정).
+          if (ticket.status === 'claimed') {
             row.append(create('button', {type: 'button', className: 'secondary-button', text: '픽업 경로 확인', onclick: async () => {
               routeDetail.hidden = false
               routeDetail.replaceChildren(create('span', {text: '판정 중…'}))
@@ -2057,12 +2198,30 @@ const renderWorkflow = () => {
             create('span', {className: 'panel-copy', text: card.planTitle ?? (card.planMissing ? '계획 문서 없음' : '')}),
             ...chips,
           ]),
-          create('p', {className: 'panel-copy', text: card.basis === 'local' ? '로컬 작업트리 기준' : '마지막 fetch 시점 origin 스냅샷 기준'}),
+          create('p', {className: 'panel-copy', text: card.basis === 'origin' ? 'push된 형상(origin) 기준 — 로컬 차이는 배지로 표기' : '마지막 fetch 시점 origin 스냅샷 기준'}),
+          // 상태별 안내는 카드당 한 줄(행 반복 금지) + **필터 연동**(선택 그룹의 안내만 —
+          // "발행 대기" 필터에서 로컬 안내가 나오던 문제, 사용자 지적).
+          ...(() => {
+            const notices = []
+            const localCount = ((card.counts ?? {})['local-new'] ?? 0) + ((card.counts ?? {})['local-modified'] ?? 0)
+            if (localCount > 0) {
+              const notice = create('p', {className: 'panel-copy', text: `⚠ 로컬 작업(미공유) ${localCount}건 — 커밋·푸시 후 청구 가능(로컬에서 바로 발행 불가)`})
+              notice.dataset.noticeGroup = 'local'
+              notices.push(notice)
+            }
+            if (((card.counts ?? {}).unclaimed ?? 0) > 0) {
+              const notice = create('p', {className: 'panel-copy', text: `발행 대기 ${(card.counts ?? {}).unclaimed}건 — 일괄 청구(claim)로 발행`})
+              notice.dataset.noticeGroup = 'unclaimed'
+              notices.push(notice)
+            }
+            return notices
+          })(),
           rows.length > 0 ? create('ul', {className: 'workflow-tickets'}, rows) : create('p', {className: 'panel-copy', text: card.planMissing ? '계획 문서 없음' : 'FEAT 헤딩 단위 없음 — 표 형식/구세대 계획은 워크플로우 파서가 아직 못 읽습니다(티켓 없음이 아니라 형식 미지원)'}),
         ]))
       }
       children.push(create('p', {className: 'panel-copy'}, (payload.notes ?? []).flatMap(note => [create('span', {text: `· ${note}`}), create('br')])))
       body.replaceChildren(...children)
+      applyFilter() // 이전 선택 필터 복원(탭 재진입 시)
     } catch {
       if (document.contains(body)) body.replaceChildren(create('p', {className: 'panel-copy', text: '워크플로우 정보를 불러오지 못했습니다'}))
     }
