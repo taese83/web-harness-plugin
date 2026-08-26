@@ -212,10 +212,63 @@ protected-core에 기등록된 한계다.
 **staleness**: 잠금은 유래한 입력의 해시를 함께 담는다. 입력이 바뀌면 stale이며
 `isSpecLockStale()`이 판정한다. 부재였던 입력이 생긴 것도 변경이다.
 
-**Stage 1의 한계(정직 표기)**: 잠금이 생기고 검증되지만 **아직 아무 게이트도 이것을 읽지
-않는다**. 게이트 전환은 Stage 2다.
+## 7. 스팩 정합 검사 (Stage 2a)
 
-## 7. Stage 0에서 하지 않는 것
+잠긴 스팩이 **실제와 맞는지** 검사한다. Phase 3 착수 전과 Phase 4 판정 전에 실행한다.
+
+```bash
+web-harness-script validate-spec-conformance --project-root {project-root} --json
+```
+
+**왜 게이트 선택 전환보다 먼저인가**: 스팩이 게이트를 고르게 하려면 스팩 자체가 먼저 검증돼야
+한다. 검증되지 않은 자기보고에 게이트 선택을 맡기는 것이 검증 약화다. 2a가 서야 2b(형태별
+게이트 선택)를 얹을 수 있다.
+
+**FAIL 조건**
+
+- `measured` 주장이 실측과 어긋난다 — libraries가 의존성 선언에 없거나, substrate 도구의
+  선언·설정 파일이 둘 다 없다. **이 검사가 없으면 잠금은 자기보고 봉인일 뿐이다**
+- `layerMap`이 존재하지 않는 경로를 가리키거나 루트를 벗어난다
+- 잠금 이후 입력이 바뀌었다(stale) — 재잠금이 필요하다
+- substrate가 하네스 toolchain pin과 어긋난다
+
+**FAIL이 아닌 것**
+
+- `spec-lock` 부재 → `NOT_LOCKED`. 잠금은 아직 선택이다
+- `specTier: unverifiable` → note. 형식 정합만 확인했고 설계가 옳은지는 판정하지 않았음을 보고
+- `proposed`는 대조하지 않는다 — 아직 실측이 아니다
+
+**검증 불가를 침묵하지 않는다.** 근거 규칙이 없는 substrate 키, 패키지 이름 형태가 아닌
+`measured` choice는 `unverifiable`로 보고된다 — 모르는 것을 실패로 만들지도, 통과로 만들지도
+않는다.
+
+### layerMap이 소유권을 공급한다 (Stage 3)
+
+`layerMap`은 기록에 그치지 않는다. 병렬 에이전트의 **쓰기 경계**가 여기서 나온다.
+
+- 역할(도메인 모델을 만드는 자·라우트를 만드는 자)은 하네스가 고정하고, **그 역할이 어느
+  경로를 쓰는지는 스팩이 정한다**. 소유권 강도는 그대로고 어휘만 프로젝트가 정한다
+- 스팩이 `layerMap`을 주지 않으면 기존 등록부가 그대로 쓰인다. **FSD를 기본 layerMap으로
+  대체하려 했으나 게이트가 회귀를 잡았다**(실측 2026-08-26) — 등록부는 레이어 이름보다 많은
+  것을 인코딩한다. 예: `feature-mutation-builder`는 `src/features/*/api/`를 갖되 `live-mode`를
+  제외한다(그 영역은 `realtime-data-builder` 소유). 평면 `layerMap`은 이런 carve-out을 표현할
+  수 없어 기본값으로 쓰면 두 에이전트의 경계가 무너진다. **"FSD 기본값 제거"는 `layerMap`이
+  carve-out을 표현할 수 있게 된 뒤에야 가능하다** — 미해결
+- **레이어는 서로 겹치면 안 된다.** `src/`가 `src/pages/`를 삼키는 식이면 스팩을 신뢰하지
+  않고 기본값으로 돌아간다 — 넓은 레이어 하나로 남의 영역을 가져가는 권한 확대를 막는다
+- `layerMap`이 덮지 않는 소스 디렉토리는 **아무 에이전트도 쓸 수 없다.** 정합 검사가 그
+  디렉토리 이름을 들어 보고한다(FAIL은 아니다 — 소유자가 없어도 되는 곳이 있다)
+
+**Stage 2a의 한계(정직 표기)**
+
+- **형태별 게이트 선택이 배선되지 않았다.** `targetShape`는 기록·보고되지만 어떤 검증을
+  고를지는 정하지 않는다 — 그것이 2b다
+- **기계 소비자가 없다.** 이 검사를 호출하는 것은 이 계약 산문뿐이고 release gate도
+  `validate-harness`도 읽지 않는다. **게이트가 아니라 검사기다**
+- substrate ↔ toolchain 정합은 7키 중 `packageManager` 1키만 대조한다
+- 근거표(`SUBSTRATE_EVIDENCE`)가 수기라 미등록 도구명은 오탐 FAIL 또는 unverifiable이 된다
+
+## 8. Stage 0에서 하지 않는 것
 
 - 이 산출물로 무엇도 차단하지 않는다
 - `layerMap`·`moduleBoundaries`를 근거로 **다른 에이전트의** 소유권 경로를 바꾸지 않는다 —
