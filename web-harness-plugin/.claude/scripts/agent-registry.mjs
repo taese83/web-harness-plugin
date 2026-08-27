@@ -3,14 +3,10 @@ const appPath = source => new RegExp(`^${appPrefix}${source}`)
 const exactAppFile = source => appPath(`${source}$`)
 
 export const VERIFIER_AGENTS = new Set([
-  'agent-trace-verifier',
   'analytics-verifier',
-  'ai-eval-runner',
-  'ai-security-reviewer',
   'api-contract-verifier',
   'browser-verifier',
   'code-reviewer',
-  'cost-latency-verifier',
   'data-access-verifier',
   'data-quality-verifier',
   'design-reviewer',
@@ -86,23 +82,9 @@ export const AGENT_OWNERSHIP = {
   // 구조 지시 빌더 6종을 걷어낸 이유가 바로 그것이었다(2026-08-26).
   developer: [],
 
-  'ai-eval-designer': [/^_workspace\/02_design\/eval-plan\.md$/],
-  'ai-requirements-analyst': [
-    // ai-requirements는 search-portal 파일럿 실측(24KB>20KB)으로 sharded 형태 허용 —
-    // autonomy-risk-matrix는 실측 없어 flat 유지 (근거 없는 선제 확장 금지)
-    /^_workspace\/01_plan\/ai-requirements(?:\.md|\/.+)$/,
-    /^_workspace\/01_plan\/autonomy-risk-matrix\.md$/,
-  ],
-  'ai-solution-architect': [
-    /^_workspace\/02_design\/ai-architecture\.md$/,
-    /^_workspace\/02_design\/cost-latency-budget\.md$/,
-  ],
-  // ai-threat-model은 search-portal 파일럿 실측(22.5KB>20KB)으로 sharded 허용 — 결함 4·5호와 동일 클래스 3번째 재현
-  'ai-threat-modeler': [/^_workspace\/02_design\/ai-threat-model(?:\.md|\/.+)$/],
   'analytics-domain-architect': [/^_workspace\/02_design\/analytics-architecture\.md$/],
   'api-schema-designer': [/^_workspace\/02_design\/api-schema(?:\.md|\/.+)$/],
   'component-designer': [/^_workspace\/02_design\/component-spec(?:\.md|\/.+)$/],
-  'data-governance-architect': [/^_workspace\/02_design\/data-governance\.md$/],
   'design-preview-builder': [/^_workspace\/02_design\/preview\//],
   'design-system-architect': [/^_workspace\/02_design\/design-system(?:\.md|\/.+)$/],
   'feature-planner': [/^_workspace\/01_plan\/feature-plan(?:\.md|\/.+)$/],
@@ -126,7 +108,6 @@ export const AGENT_OWNERSHIP = {
   'source-artifact-ingestor': [/^_workspace\/(?:00_source|01_plan|02_design)\//],
   'tech-advisor': [/^_workspace\/01_plan\/tech-stack(?:\.md|\/.+)$/],
   'timeseries-architect': [/^_workspace\/02_design\/timeseries-architecture\.md$/],
-  'tool-contract-designer': [/^_workspace\/02_design\/tool-contracts\.md$/],
   'ux-researcher': [/^_workspace\/01_plan\/ux-brief(?:\.md|\/.+)$/],
   'visual-baseline-manager': [/^_workspace\/02_design\/visual-baseline-manifest\.json$/],
   'visual-contract-designer': [
@@ -175,9 +156,25 @@ const UNUSED_DEFAULT_LAYER_MAP_NOTE = DEFAULT_LAYER_MAP
 export const AGENT_LAYER_ROLES = {}
 
 // 경로를 정규화한다 — 선행 ./ 제거, 후행 / 보장(디렉토리 접두 매칭용).
+// layerMap 항목은 디렉토리일 수도 **파일**일 수도 있다. 실사용 확정 2호의 layerMap 17개 중
+// 6개가 파일이었다(`src/index.ts`·`src/ChatKit.ts` 등 — src/ 아래가 평면이라 루트 파일이 각각
+// 한 레이어다). 종전 구현은 무조건 `/`를 붙여 `src/ChatKit.ts/`를 만들었고, 그 파일 자신과는
+// 영원히 맞지 않았다 — **실사용 스팩의 3분의 1이 무소유였다**(2026-08-26 실측).
+//
+// 파일이면 그대로 두고 디렉토리면 `/`를 붙인다. 확장자 유무로 가른다 — 마지막 세그먼트에
+// 점이 있으면 파일로 본다. 프록시이며 확장자 없는 파일(`Makefile` 등)은 디렉토리로 오인된다.
 const normalizeLayerPath = value => {
-  const trimmed = String(value).trim().replace(/^\.\//, '')
-  return trimmed.endsWith('/') ? trimmed : `${trimmed}/`
+  const trimmed = String(value).trim().replace(/^\.\//, '').replace(/\/+$/, '')
+  const last = trimmed.split('/').at(-1) ?? ''
+  return /\.[^.]+$/.test(last) ? trimmed : `${trimmed}/`
+}
+
+// 경로 → 정규식. 디렉토리는 **접두 일치**(하위 전부), 파일은 **완전 일치**다.
+// 파일에 끝 앵커를 안 붙이면 `src/ChatKit.ts`가 `src/ChatKit.tsx`까지 잡는다(2026-08-26 실측).
+const layerPattern = path => {
+  const normalized = normalizeLayerPath(path)
+  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`^${appPrefix}${escaped}${normalized.endsWith('/') ? '' : '$'}`)
 }
 
 // 부재 표기(괄호 주석)와 빈 값은 경로가 아니다.
@@ -224,7 +221,7 @@ export const resolveDeveloperOwnership = spec => {
   if (findLayerOverlaps(layerMap).length > 0) return null   // 겹치면 신뢰하지 않는다
   const patterns = Object.values(layerMap)
     .filter(path => isLayerPathDeclared(path))
-    .map(path => new RegExp(`^${appPrefix}${normalizeLayerPath(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+    .map(path => layerPattern(path))
   return patterns.length > 0 ? patterns : null
 }
 
@@ -234,7 +231,7 @@ export const intersectWithScope = (patterns, allowedPaths) => {
   if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) return patterns
   const scoped = allowedPaths
     .filter(path => isLayerPathDeclared(path))
-    .map(path => new RegExp(`^${appPrefix}${normalizeLayerPath(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+    .map(path => layerPattern(path))
   if (scoped.length === 0) return patterns
   return [{test: value => patterns.some(p => p.test(value)) && scoped.some(p => p.test(value)),
            source: `scope(${allowedPaths.join(', ')})`}]
