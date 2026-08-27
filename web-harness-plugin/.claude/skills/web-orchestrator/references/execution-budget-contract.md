@@ -38,6 +38,14 @@
 
 스폰 수 cap은 **몇 번 스폰했나**를 세지만 **개별 스폰이 온전히 끝났나**는 보지 않는다. 실측: 무예산 실행에서 빌더가 28~46분·150~208k 토큰을 쓰고 편집 도중 truncate(구문상 깨지거나 미완인 파일을 남김)하거나 실행 환경 crash로 중단됐는데, 오케스트레이터가 이를 자동 감지하지 못해 다음 단계가 깨진 산출물 위에 쌓이거나 사람이 수동으로 확인·수정해야 했다. 이 게이트가 그 구멍을 메운다 — 3개 layer이며, **구현/빌더 계열 스폰마다 다음 의존 단계로 진행하기 전에** 적용한다.
 
+**판정 계열(설계자·리뷰어·verifier)에도 Layer 1을 적용한다(2026-08-26).** 이들은 파일이 아니라 텍스트를 반환해 Layer 2가 닿지 않는다. 실측: `maxTurns`에 걸린 서브에이전트는 **에러가 아니라 빈 보고로 끝나고 정상 종료와 반환 형태가 같다** — 리뷰어가 "Factual claims confirmed so far. Now run the test suite."로 끝난 것을 그대로 받았으면 "적대 리뷰 통과"로 커밋될 뻔했다(같은 날 3회). 반환을 파일로 저장해 기계로 검사한다:
+
+```bash
+node .claude/scripts/verify-spawn-completion.mjs --return {반환 저장 파일}
+```
+
+exit 1이면 판정을 채택하지 않는다 — **빈 보고를 "검토했다"로 쓰지 않는다.** 판정 계열 마커는 `FILES:` 대신 `FINDINGS: <건수 또는 none>`을 쓴다.
+
 ### Layer 1 — 완결성 마커 프로토콜
 
 구현/빌더 스폰은 반환 끝에 다음 블록을 낸다:
@@ -100,7 +108,7 @@ per-spawn 규모 임계(Layer 3)와 무산출 가드는 runaway를 **사후 검�
 **빈도는 telemetry 원본 기준으로 정정한다(2026-08-12).** 이전 서술은 "빌더 6+회 중 5회
 폭주"였으나 이는 사후 서사이고, per-spawn으로 기록된 `execution-telemetry.json`은 다르게
 말한다 — seminar-booking 전 과정 **22스폰 중 미완 3건**(P2 layout-designer 126.7k truncated,
-P2 api-schema-designer 129.5k truncated, P3 client-domain-state-builder 168.0k incomplete),
+P2 api-schema-designer 129.5k truncated, P3 developer 168.0k incomplete),
 **미완이 소비한 토큰은 424k = 전체의 15%**, 셋 다 재스폰으로 복구됐다. 즉 **1회당 비용은
 크지만(130~170k) 상례가 아니라 예외**다. 기능 단위에선 드러나지 않고 서비스 규모에서만
 나타난다는 점은 그대로다.
@@ -158,7 +166,7 @@ P2 api-schema-designer 129.5k truncated, P3 client-domain-state-builder 168.0k i
    계산값이다 — 형태가 다른 서비스(산출물 입도·스펙 밀도가 다른 경우)에서는 재교정이
    필요하고, 아직 2개+ 형태로 일반화되지 않았다.**
 
-   교정 근거: 실제로 폭주했던 seminar-booking `client-domain-state-builder` 계획을 이
+   교정 근거: 실제로 폭주했던 seminar-booking `developer` 계획을 이
    게이트에 넣으면 산출물 12/8 · read 추정 **162k**로 REFUSE가 나온다 — 실측 소비량
    150~190k 범위 안이다. 단 이는 **교정 증거이지 효능 증거가 아니다**: 이 게이트가 실제
    runaway 발생률을 낮추는지는 Phase 3 재실행으로 측정하기 전이다.
@@ -173,11 +181,11 @@ P2 api-schema-designer 129.5k truncated, P3 client-domain-state-builder 168.0k i
    truncated)만** 돌려준다. 재스폰 프롬프트에는 그 remaining만 지정한다(전체 재작성 금지 —
    완성분을 덮어써 오히려 truncate 위험을 키운다). remaining이 0이면 작업 완결이다.
 
-   **계획을 스폰 전에 잠근다(`--lock`).** outputs가 자기선언인 한, 빌더가 죽은 뒤 매니페스트를
+   **계획을 스폰 전에 확정한다(`--lock`).** outputs가 자기선언인 한, 빌더가 죽은 뒤 매니페스트를
    실제로 쓰인 파일에 맞춰 줄이면 COMPLETE가 나온다(사후 축소). fit 게이트를 통과할 때
    `--lock`을 붙이면 계획 내용의 digest가 매니페스트에 박히고, `resume-manifest`가 이를
-   대조해 **TAMPERED(exit 1, fail-closed)**로 잡는다. 잠금이 없으면 "검증되지 않은
-   자기선언"이라고 정직하게 보고한다 — 큰 빌더 스폰은 반드시 잠그고 시작한다.
+   대조해 **TAMPERED(exit 1, fail-closed)**로 잡는다. 스팩이 없으면 "검증되지 않은
+   자기선언"이라고 정직하게 보고한다 — 큰 빌더 스폰은 반드시 확정하고 시작한다.
 
    ```bash
    node .claude/scripts/validate-spawn-plan.mjs --project {root} --plan <manifest> --lock
@@ -187,16 +195,16 @@ P2 api-schema-designer 129.5k truncated, P3 client-domain-state-builder 168.0k i
    `--owned`를 주면 소유 범위의 실제 파일과 선언 목록을 대조해 **선언되지 않은 산출물**을
    보고한다(매니페스트가 현실과 어긋났다는 신호).
 
-   잠금 증거는 매니페스트 **바깥**의 append-only 원장(`.plan-locks.jsonl`)에 남는다. 실측에서
-   매니페스트 안에만 두면 두 경로로 뚫렸다 — `planLock` 삭제(→unlocked) · 축소 후 재잠금
-   (→새 digest). 원장이 있으면 **최초 잠금과 대조**하므로 둘 다 TAMPERED로 잡히고 재잠금은
-   `relocked`로 드러난다. 나아가 `--lock`은 **다른 digest의 잠금이 이미 있으면 재잠금을
+   스팩 확정 증거는 매니페스트 **바깥**의 append-only 원장(`.plan-locks.jsonl`)에 남는다. 실측에서
+   매니페스트 안에만 두면 두 경로로 뚫렸다 — `planLock` 삭제(→unlocked) · 축소 후 재확정
+   (→새 digest). 원장이 있으면 **최초 스팩과 대조**하므로 둘 다 TAMPERED로 잡히고 재확정은
+   `relocked`로 드러난다. 나아가 `--lock`은 **다른 digest의 스팩이 이미 있으면 재확정을
    거부**한다(exit 2) — 사후 탐지보다 강한 사전 차단이며, 범위를 바꾸려면 새 task로 재계획해야
    한다.
 
    **막지 못하는 것(정확히).** 원장 파일과 매니페스트의 `planLock`을 **둘 다 지운 뒤 다시
-   잠그면** 위조가 성립한다. 이때 결과는 정직한 `unlocked`가 아니라 **위조된 `locked`**다 —
-   증거를 전부 파기하면 최초 잠금과 기계적으로 구분할 수 없기 때문이다. 로컬 증거는
+   확정하면** 위조가 성립한다. 이때 결과는 정직한 `unlocked`가 아니라 **위조된 `locked`**다 —
+   증거를 전부 파기하면 최초 스팩과 기계적으로 구분할 수 없기 때문이다. 로컬 증거는
    tamper-**evident**이지 tamper-proof가 아니며, 이 경로를 막는 것은 기계가 아니라
    **비협상 규칙**(CLAUDE.md "로컬에서 서명 증거 위조 금지")이다.
 4. **즉시-쓰기 계약 (무산출 예방 — 프롬프트 규칙).** <!-- marker:immediate-write-contract --> 산출 스폰 프롬프트에 **"첫 도구 호출은
@@ -272,7 +280,7 @@ P2 api-schema-designer 129.5k truncated, P3 client-domain-state-builder 168.0k i
 
 | 계층 | 대상 | 강등 |
 |---|---|---|
-| 기계적 | `package-scaffolder`, `tooling-scaffolder`, `changeset-setup`, `version-file-updater`, `changelog-writer` | 저비용 모델 허용 |
+| 기계적 | `environment-scaffolder`, `environment-scaffolder`, `environment-scaffolder`, `environment-scaffolder`, `environment-scaffolder` | 저비용 모델 허용 |
 | 생성 | builder·designer 계열 | 기본 유지 |
 | 판단 | `plan-reviewer`, `design-reviewer`, `code-reviewer`, `security-reviewer`, verifier 전원, `planning-synthesizer`, `release-manager` | 강등 금지 |
 

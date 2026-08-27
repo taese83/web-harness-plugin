@@ -24,7 +24,7 @@
 - 실시간·장기 실행 job — 전용 backend 영역으로 안내하고 이 profile로 수용하지 않는다
 
 **처리 (감지 시)**:
-- profile resolver를 `--requested vite-serverless-hybrid`로 실행해 built-in profile을 잠근다. 루트 `api/`가 이미 있으면 auto 감지로도 잠긴다 (`react-vite-spa`는 루트 `api/`를 forbidden marker로 배제).
+- profile resolver를 `--requested vite-serverless-hybrid`로 실행해 built-in profile을 확정한다. 루트 `api/`가 이미 있으면 auto 감지로도 확정된다 (`react-vite-spa`는 루트 `api/`를 forbidden marker로 배제).
 - 구현 계약은 `/vite-serverless-hybrid` skill을 따른다 — **§7 엔드포인트 공통 가드 5종**(method allowlist·인증·body 캡·스키마 검증·rate limit)이 handler 구현보다 앞선다. release 시 profile DAG의 `api.guards`(security)·`api.unit` machine receipt가 이를 강제한다.
 - `SERVER_DB_MODE`·`OAUTH_SERVER_MODE`·`API_CONTRACT_MODE`가 이 profile 위에서 자연스럽게 조합된다.
 - supportLevel은 `compatible`이다 — 체크인된 golden/host diagnostics가 있어도 실제 provider 배포·격리 CI·외부 attestation 전에는 certified evidence가 아니다. workspace/monorepo의 `client/api/`, `apps/*/api/` 배치는 아직 adapter 감지 밖이므로 app root 단일 배치로 정규화하거나 `NEEDS_DECISION`으로 확인한다.
@@ -65,7 +65,7 @@
 - 이미 tRPC 등 end-to-end typed 솔루션 사용 중
 
 **Phase 3 삽입 지점**:
-- shared-foundation-builder 이후, entity-query-builder 이전
+- developer 이후, developer 이전
 - Schema 정의가 있어야 entity/feature builder가 참조 가능
 
 ### MOCK_SERVICE_MODE — `mock-service-setup`
@@ -80,10 +80,10 @@
 
 **제외**:
 - 이미 real API에 붙어서 개발 중이고 오프라인/CI 재현 요구 없음
-- `mock-api-builder` agent가 이미 기본 MSW 셋업을 완료했으면 이 skill은 handler 확장 전용
+- `developer` agent가 이미 기본 MSW 셋업을 완료했으면 이 skill은 handler 확장 전용
 
 **Phase 3 삽입 지점**:
-- `mock-api-builder` agent와 겹치지 않게: agent가 초기 셋업, skill이 확장·organize
+- `developer` agent와 겹치지 않게: agent가 초기 셋업, skill이 확장·organize
 - API contract가 있으면 그 뒤에 실행 (schema 참조)
 
 ### OAUTH_SERVER_MODE — `auth-setup` (references/oauth-server-flow)
@@ -99,7 +99,7 @@
 
 **Phase 3 삽입 지점**:
 - SERVER_DB_MODE 이후 (user upsert 필요)
-- feature-mutation-builder 이전 (protected endpoint가 auth를 요구)
+- developer 이전 (protected endpoint가 auth를 요구)
 
 ### I18N_MODE — `i18n-setup`
 
@@ -112,9 +112,9 @@
 - 단일 언어 고정 서비스 (하드코딩 문자열이 정당)
 - 안내문 한두 개만 바꾸는 단순 언어 토글
 
-**Phase 3 삽입 지점**: `shared-foundation-builder` 이후(빈 `src/shared/lang/` 생성 뒤), `component-builder` 이전(UI가 catalog key를 사용해야 함). `/i18n-setup`을 실행하고 파일 작성은 `i18n-builder`가 담당한다.
+**Phase 3 삽입 지점**: `developer` 이후(빈 `src/shared/lang/` 생성 뒤), `developer` 이전(UI가 catalog key를 사용해야 함). `/i18n-setup`을 실행하고 파일 작성은 `developer`가 담당한다.
 
-### OBSERVABILITY_MODE — `web-observability-builder`
+### OBSERVABILITY_MODE — `developer`
 
 **신호**:
 - intake에서 에러 추적·모니터링·RUM·알림 요구
@@ -122,10 +122,10 @@
 - 기존 `@sentry/*` 계열 dependency 또는 `src/shared/observability/`
 
 **제외**:
-- AI runtime trace만 필요한 경우 (`ai-observability-builder` 소유)
+- AI runtime trace만 필요한 경우 (`environment-scaffolder` 소유)
 - 학습용·일회성 데모
 
-**Phase 3 삽입 지점**: 데이터 계층 완료 후, `deploy-ci-writer` 이전 (source map 업로드 계약을 workflow 작성 전에 전달해야 함). skill이 아니라 `web-observability-builder` agent를 직접 실행한다.
+**Phase 3 삽입 지점**: 데이터 계층 완료 후, `environment-scaffolder` 이전 (source map 업로드 계약을 workflow 작성 전에 전달해야 함). skill이 아니라 `developer` agent를 직접 실행한다.
 
 ## 감지 결과 표시
 
@@ -150,7 +150,7 @@
 
 지원되는 Phase 3 companion 실행 순서:
 
-1. `HYBRID_SERVERLESS_MODE`이면 profile을 `vite-serverless-hybrid`로 잠그고 `/vite-serverless-hybrid`의 §7 가드 계약을 로드
+1. `HYBRID_SERVERLESS_MODE`이면 profile을 `vite-serverless-hybrid`로 확정하고 `/vite-serverless-hybrid`의 §7 가드 계약을 로드
 2. `SERVER_DB_MODE` — DB migration 파일 세트
 3. `API_CONTRACT_MODE` — shared request/response schema
 4. `OAUTH_SERVER_MODE` — auth 흐름과 보호 handler

@@ -13,6 +13,21 @@ Phase 2(디자인)와 Phase 3(개발) 사이에서 `system-architect`가 **구�
 이 지위는 문서에 명시된다. 산출물 상단에 `STAGE: 0 (observational — not a gate)`를 적고,
 읽는 쪽이 이것을 계약으로 오해하지 않게 한다. 지위가 바뀌면 이 절을 갱신한다.
 
+## 0-1. 진입 경로 — 스팩은 언제 서는가
+
+스팩 확정은 사용자가 따로 실행하는 명령이 아니다. 작업이 들어온 그 시점에 붙는다.
+
+| 진입 | 기획 | 디자인 | 스팩 |
+|---|---|---|---|
+| **그린필드** | 필요 | 필요 | 요청·기획에서 **추론**(`inferred`)해 세운다 |
+| **브라운필드 첫 작업** | — | — | 기능 작업 **전에** 기존 코드를 **실측**(`measured`)해 세운다 |
+| **기능 추가** | 필요 | 필요 | 갱신 — 새 레이어·라이브러리·형태가 생기면 재확정한다 |
+| **단순 수정**(bug-fix·refactor) | 건너뜀 | 건너뜀 | 없으면 실측해 만든다. 있고 바뀔 게 없으면 그대로 쓴다 |
+
+단순 수정에서 기획·디자인을 건너뛰는 것이 **스팩까지 건너뛰는 근거는 아니다** — 소유권 경계가
+거기서 나오므로 스팩이 없으면 경계도 없다. 반대로 스팩이 이미 있고 이번 변경이 레이어·라이브러리·
+형태를 건드리지 않으면 재확정하지 않는다(재확정은 receipt를 stale로 만든다, §6).
+
 ## 1. 두 층 — 고정 기반과 유동 선택
 
 스팩은 **고정되는 것**과 **서비스마다 달라지는 것**을 구분해 담는다. 이 구분이 무너지면
@@ -37,23 +52,13 @@ Phase 2(디자인)와 Phase 3(개발) 사이에서 `system-architect`가 **구�
 패턴**이다(`exports` + `bin`의 dual entry point). 하나로 강제하면 나머지 절반의 검증을 잃으므로
 검사 세트는 선언된 형태의 **합집합**이 된다. `web-app`·`library`·`cli` 등 열린 문자열이다.
 
-**형태는 기계로 대조된다.** 정합 검사가 `package.json`과 맞춰 본다 — `bin` 없이 `cli`를
-주장하면 FAIL, `private: true`인데 `library`를 주장하면 FAIL. 반대로 `bin`이 있는데 `cli`를
-선언하지 않으면 그 검증이 선택되지 않으므로 note로 알린다. 대조 없이 형태가 게이트를 고르면
-**형태 자기보고 하나로 검증 세트 전체를 회피**할 수 있다.
+**형태는 기계로 대조된다**(§7). 대조 없이 형태가 게이트를 고르면 **형태 자기보고 하나로
+검증 세트 전체를 회피**할 수 있다. 다만 대조는 **모순 검출**이지 결정 수단이 아니다 —
+형태를 정하는 것은 아래 근거 순서다.
 
-**누가 정하나**: 설계자가 근거를 대고 정한다. 근거 순서는 (1) 기존 source 실측 —
-`package.json`의 `private`·`exports`·`bin`이 형태를 말해 준다(이 신호가 곧 기계 대조 기준이다), (2) `feature-plan`과
-`requirements`가 서술하는 소비 방식(사용자가 화면을 쓰는가, 다른 코드가 import 하는가),
-(3) 그래도 갈리면 확정하지 말고 `openDecisions`로 올린다. **형태는 되돌리기 비용이 가장 큰
-결정 중 하나이므로 추정으로 확정하지 않는다.**
-
-**한계(미해결)** — 둘 다 §4 등록:
-- `substrate-defaults.json`은 아직 `tooling-scaffolder`·`validate-toolchain`·`ts-conventions`의
-  단일 소스가 아니다. 네 곳이 각자 값을 갖고 있으며 통합은 후속 단계다
-- **기본값은 web-app 형태 기준이다.** `targetShape`가 `library`·`cli`여도 `e2e: playwright`·
-  `bundler: vite`가 default로 채워진다 — 형태별 조건화는 미해결이다. 형태에 맞지 않는 기본값은
-  `measured`·`declared`로 덮어써야 한다
+**한계(미해결, protected-core §4가 정본)**: `substrate-defaults.json`은 네 곳 중 단일 소스가
+아니고, 기본값이 web-app 기준이라 `library`·`cli`에도 `e2e: playwright`가 default로 채워진다 —
+형태에 맞지 않는 기본값은 `measured`·`inferred`·`declared`로 덮어써야 한다.
 
 ## 2. 무엇을 담고 무엇을 담지 않는가
 
@@ -96,22 +101,39 @@ Phase 2(디자인)와 Phase 3(개발) 사이에서 `system-architect`가 **구�
 - 기존 프로젝트에 아키텍처 관례가 없으면 그 사실을 그대로 기록한다 — 없는 관례를 지어내
   기록하지 않는다
 
-## 4. 사용자 제시 — 결정을 대신하지 않는다
+## 4. 근거 순서와 사용자 왕복
 
-설계자는 **판단하되 확정하지 않는다.** 다음은 반드시 선택지로 제시한다:
+**실측 → 추론 → 질의.** 이 순서가 `source` 티어다.
 
-- 대안이 실질적으로 갈리는 결정 (예: 상태 관리 라이브러리, 아키텍처 패턴)
-- 브라운필드 실측과 다른 제안
-- 되돌리기 비용이 큰 결정 (디렉토리 구조, 데이터 계층)
+| 티어 | 언제 | 근거 |
+|---|---|---|
+| `measured` / `measured-absent` | 브라운필드 | `package.json`·`tsconfig`·env·설정·코드에서 읽는다. 찾아보고 없으면 `measured-absent` |
+| `inferred` | 그린필드 | 사용자 요청에서 추론한다 — "라이브러리가 필요해"→`library`, "모바일에 들어가야"→hybrid, "브라우저 확장"→extension |
+| `confirmed` | 실측도 추론도 안 될 때 | 사용자에게 물어 확정했다 |
+| `proposed` | 위 어느 근거도 없다 | 설계자 제안일 뿐이라고 표기하는 자리 |
 
-제시 형식은 `interaction-contract.md`를 따른다 — 한 번에 최대 3개, 각 선택지에 **추천안과
-사유**를 붙인다. 사용자가 답하지 않으면 추천안을 `ASSUMPTION`으로 확정하고 그렇게 표기한다.
+**읽을 수 있는 것을 묻지 않는다.** `@scope` + 사내 repository URL이면 사내 배포다.
+`build.lib`와 `files: ["dist"]`면 라이브러리다. 이런 것은 추론이지 질문이 아니다.
 
-명백한 것은 묻지 않는다. 기존 관례가 있고 그것을 따르면 되는 항목은 기록만 한다.
+**질의는 왕복이다 — 설계자가 스스로 닫지 않는다.** 설계자는 서브에이전트라 사용자에게 직접
+묻지 못한다. 갈리는 결정은 `openDecisions`에 `status: "open"`으로 남기고 **거기서 멈춘다**.
+오케스트레이터가 `interaction-contract.md`에 따라(한 번에 최대 3개, 추천안과 사유 첨부)
+사용자에게 묻고, 답을 설계자에게 돌려준다.
+
+- 사용자가 답했다 → `confirmed`
+- 사용자가 보류·거부했다 → 추천안을 `assumed`로 확정하고 그렇게 표기한다
+
+`assumed`는 **묻고 나서** 나오는 상태다. 묻지 않고 `assumed`로 적으면 사용자 제시를
+건너뛴 것이며, 그 잠금은 "제시했다"를 자기보고로 만든다. `spec.mjs`는 `open`이 하나라도
+남으면 확정을 거부하므로 왕복이 기계로 강제된다.
+
+**반드시 올리는 것**: 대안이 실질적으로 갈리는 결정 · 브라운필드 실측과 다른 제안 ·
+되돌리기 비용이 큰 결정(디렉토리 구조, 데이터 계층, 형태).
+**묻지 않는 것**: 기존 관례가 있고 그것을 따르면 되는 항목은 기록만 한다.
 
 ## 5. 기계 판독 가능 블록 (전방 호환)
 
-문서 끝에 결정을 구조화해 한 번 더 적는다. Stage 1에서 이 블록이 잠금 아티팩트로 승격되므로
+문서 끝에 결정을 구조화해 한 번 더 적는다. Stage 1에서 이 블록이 스팩 확정 아티팩트로 승격되므로
 **형식을 임의로 바꾸지 않는다.**
 
 ````
@@ -179,30 +201,30 @@ E2E의 부재는 그 자체가 설계 결정이며, 확인된 부재와 미확�
   할 수 있지만 그것이 맞는지 판정할 기준이 없다
 - 수용 기준을 여기서 지어내지 않는다(§2). 필요하면 feature-plan을 선행하라는 것이 답이다
 
-**Stage 1 전제조건**: 잠금 아티팩트로 승격할 때 `acceptanceSource: "absent"`를 허용할지
+**Stage 1 전제조건**: 스팩 확정 아티팩트로 승격할 때 `acceptanceSource: "absent"`를 허용할지
 결정해야 한다. 허용하면 검증 기준 없는 스팩이 잠기고, 불허하면 기획 없는 브라운필드 개선이
 막힌다. 이 판단은 Stage 1의 몫이며 여기서 미리 정하지 않는다.
 
-## 6. 스팩 잠금 (Stage 1)
+## 6. 스팩 확정 (Stage 1)
 
-결정이 전부 확정되면 잠근다. 잠금은 **협업 계약**이다 — 여러 사람이 같은 스팩에 맞춰
+결정이 전부 확정되면 확정한다. 스팩은 **협업 계약**이다 — 여러 사람이 같은 스팩에 맞춰
 개발하려면 그 스팩이 개발 중에 흔들리지 않아야 하고, 이 필요는 모델 능력과 무관하다.
 
 ```bash
-node .claude/scripts/lock-spec.mjs --project-root {project-root}
+node .claude/scripts/spec.mjs --project-root {project-root}
 ```
 
-stdout을 `_workspace/03_dev/spec-lock.json`에 그대로 저장한다 — `project-profile.json`·
-`web-execution-plan.json`과 같은 관례다. 스키마는 `.claude/schemas/spec-lock.schema.json`.
+stdout을 `_workspace/03_dev/spec.json`에 그대로 저장한다 — `project-profile.json`·
+`web-execution-plan.json`과 같은 관례다. 스키마는 `.claude/schemas/spec.schema.json`.
 
 **어떤 에이전트도 이 파일을 소유하지 않는다.** 따라서 구현 에이전트의 스팩 자기수정이
 **Edit/Write 채널에서** 차단된다 — 차단의 실체는 `ORCHESTRATOR_AUTHORED_ARTIFACTS`(비강제
 명세)가 아니라 소유권 훅의 default-deny다. Bash 채널과 메인 스레드는 훅 밖이며 이는
 protected-core에 기등록된 한계다.
 
-**잠금 거부(fail-closed)**
+**확정 거부(fail-closed)**
 
-- `status: "open"`인 미결정이 **하나라도** 있으면 잠기지 않는다 — 착수 전 확정이 전제다.
+- `status: "open"`인 미결정이 **하나라도** 있으면 확정되지 않는다 — 착수 전 확정이 전제다.
   확정하거나 `ASSUMPTION`으로 기록해야 한다
 - 결정 블록 부재·중복(정본이 모호)·JSON 오류
 - `acceptanceSource`와 `acceptanceRefs`의 자기 모순
@@ -210,7 +232,7 @@ protected-core에 기등록된 한계다.
 
 **거부하지 않고 라벨로 표기하는 것**
 
-수용 기준이 없으면(`acceptanceSource: "absent"`) `specTier: "unverifiable"`로 잠긴다.
+수용 기준이 없으면(`acceptanceSource: "absent"`) `specTier: "unverifiable"`로 확정된다.
 설계는 확정됐으나 맞는지 판정할 기준이 없다는 뜻이다. 기획 없는 브라운필드 개선을 막지
 않으면서 그 상태를 숨기지도 않는다 — 이 tier를 게이트가 어떻게 다룰지는 **Stage 2의 결정**이다.
 
@@ -220,18 +242,18 @@ protected-core에 기등록된 한계다.
 않는다(형제 패키지가 소비할 수 있다). 카탈로그에 없는 형태는 FAIL이 아니라 `unverifiable`이다 —
 하네스가 모르는 것을 프로젝트 실패로 보고하지 않는다.
 
-**원장 결박**: 잠금 시 `spec-lock-ledger.jsonl`에 **잠금 자신의 해시**가 append된다.
-`sourceDigest`는 *입력*만 다이제스트하므로 잠금을 사후에 고쳐 써도 잡지 못한다. 원장이
-`SPEC_LOCK_TAMPERED`(사후 수정)와 `SPEC_LOCK_DELETED`(삭제)를 막는다. 재잠금은 정상이고,
+**원장 결박**: 스팩 확정 시 `spec-ledger.jsonl`에 **스팩 확정 자신의 해시**가 append된다.
+`sourceDigest`는 *입력*만 다이제스트하므로 스팩을 사후에 고쳐 써도 잡지 못한다. 원장이
+`SPEC_TAMPERED`(사후 수정)와 `SPEC_DELETED`(삭제)를 막는다. 재확정은 정상이고,
 원장이 없으면 실패가 아니라 **결박 부재**로 보고된다. **한계**: 원장도 파일이라 함께 지우면
 탐지되지 않는다 — 실질 방어는 원장이 git에 커밋되어 삭제가 히스토리에 남는 것이다.
 
-**staleness**: 잠금은 유래한 입력의 해시를 함께 담는다. 입력이 바뀌면 stale이며
-`isSpecLockStale()`이 판정한다. 부재였던 입력이 생긴 것도 변경이다.
+**staleness**: 스팩은 유래한 입력의 해시를 함께 담는다. 입력이 바뀌면 stale이며
+`isSpecStale()`이 판정한다. 부재였던 입력이 생긴 것도 변경이다.
 
 ## 7. 스팩 정합 검사 (Stage 2a)
 
-잠긴 스팩이 **실제와 맞는지** 검사한다. Phase 3 착수 전과 Phase 4 판정 전에 실행한다.
+확정된 스팩이 **실제와 맞는지** 검사한다. Phase 3 착수 전과 Phase 4 판정 전에 실행한다.
 
 ```bash
 node .claude/scripts/validate-spec-conformance.mjs --project-root {project-root} --json
@@ -244,14 +266,14 @@ node .claude/scripts/validate-spec-conformance.mjs --project-root {project-root}
 **FAIL 조건**
 
 - `measured` 주장이 실측과 어긋난다 — libraries가 의존성 선언에 없거나, substrate 도구의
-  선언·설정 파일이 둘 다 없다. **이 검사가 없으면 잠금은 자기보고 봉인일 뿐이다**
+  선언·설정 파일이 둘 다 없다. **이 검사가 없으면 스팩은 자기보고 봉인일 뿐이다**
 - `layerMap`이 존재하지 않는 경로를 가리키거나 루트를 벗어난다
-- 잠금 이후 입력이 바뀌었다(stale) — 재잠금이 필요하다
+- 확정 이후 입력이 바뀌었다(stale) — 재확정이 필요하다
 - substrate가 하네스 toolchain pin과 어긋난다
 
 **FAIL이 아닌 것**
 
-- `spec-lock` 부재 → `NOT_LOCKED`. 잠금은 아직 선택이다
+- `spec-lock` 부재 → `NO_SPEC`. 스팩은 아직 선택이다
 - `specTier: unverifiable` → note. 형식 정합만 확인했고 설계가 옳은지는 판정하지 않았음을 보고
 - `proposed`는 대조하지 않는다 — 아직 실측이 아니다
 
@@ -267,8 +289,8 @@ node .claude/scripts/validate-spec-conformance.mjs --project-root {project-root}
   경로를 쓰는지는 스팩이 정한다**. 소유권 강도는 그대로고 어휘만 프로젝트가 정한다
 - 스팩이 `layerMap`을 주지 않으면 기존 등록부가 그대로 쓰인다. **FSD를 기본 layerMap으로
   대체하려 했으나 게이트가 회귀를 잡았다**(실측 2026-08-26) — 등록부는 레이어 이름보다 많은
-  것을 인코딩한다. 예: `feature-mutation-builder`는 `src/features/*/api/`를 갖되 `live-mode`를
-  제외한다(그 영역은 `realtime-data-builder` 소유). 평면 `layerMap`은 이런 carve-out을 표현할
+  것을 인코딩한다. 예: `developer`는 `src/features/*/api/`를 갖되 `live-mode`를
+  제외한다(그 영역은 `developer` 소유). 평면 `layerMap`은 이런 carve-out을 표현할
   수 없어 기본값으로 쓰면 두 에이전트의 경계가 무너진다. **"FSD 기본값 제거"는 `layerMap`이
   carve-out을 표현할 수 있게 된 뒤에야 가능하다** — 미해결
 - **레이어는 서로 겹치면 안 된다.** `src/`가 `src/pages/`를 삼키는 식이면 스팩을 신뢰하지

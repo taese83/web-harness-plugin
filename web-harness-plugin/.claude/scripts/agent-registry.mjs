@@ -40,19 +40,53 @@ export const ORCHESTRATOR_AUTHORED_ARTIFACTS = [
   '_workspace/03_dev/web-execution-plan.json', // compile-execution-plan.mjs stdout을 그대로 저장
   '_workspace/02_design/integration-overlay.json', // 기존 프로젝트 통합 지점 스캔 결과
   '_workspace/03_dev/change-scope.md', // minimal-change-contract의 변경 범위 brief
-  '_workspace/03_dev/spec-lock.json', // lock-spec.mjs stdout — 어떤 에이전트도 소유하지 않는다(구현 에이전트의 스팩 자기수정 차단)
+  '_workspace/03_dev/spec.json', // spec.mjs stdout — 어떤 에이전트도 소유하지 않는다(구현 에이전트의 스팩 자기수정 차단)
   '_workspace/03_dev/build-manifest/', // 스폰 계획(fit 게이트 입력 = 재개 매니페스트)
-  '_workspace/03_dev/build-manifest/.plan-locks.jsonl', // 계획 잠금 원장(append-only)
+  '_workspace/03_dev/build-manifest/.plan-locks.jsonl', // 계획 스팩 원장(append-only)
 ]
 
 export const AGENT_OWNERSHIP = {
-  'agent-runtime-scaffolder': [
-    /^apps\/agent-api\//,
-    /^workers\/agent-jobs\//,
-    /^packages\/agent-runtime\//,
+  'planning-facilitator': [
+    /^_workspace\/01_plan\/planning-context(?:\.md|\/.+)$/,
+    /^_workspace\/01_plan\/decision-log(?:\.md|\/.+)$/,
   ],
+
+  // package-scaffolder·tooling-scaffolder·test-scaffolder를 합쳤다(2026-08-26). 셋이
+  // vitest.config·playwright.config·src/test/를 겹쳐 소유해 경계가 성립하지 않았다.
+  // developer와 분리해 남기는 이유: package.json의 scripts가 무엇이 검사로 도는지를 정한다 —
+  // 검사를 정의하는 것과 검사를 통과해야 하는 것은 분리한다.
+  'environment-scaffolder': [
+    // 아래는 2026-08-26에 제거된 15종에서 흡수한 설정·배포·문서 경로다.
+    // `packages/*`·`apps/*`·`workers/*` 같은 **패키지 이름 처방**은 흡수하지 않고 버렸다 —
+    // 그것은 소스이며 developer가 layerMap으로 덮는다.
+    /^(?:(?:[^/]+\/)+)?Dockerfile$/, /^(?:(?:[^/]+\/)+)?nginx\.conf$/, /^(?:(?:[^/]+\/)+)?deploy\//,
+    /^(?:(?:[^/]+\/)+)?migrations\//, /^(?:(?:[^/]+\/)+)?scripts\/migrate\.(?:ts|mjs)$/,
+    /^(?:(?:[^/]+\/)+)?next\.config\.(?:js|mjs|ts)$/, /^(?:(?:[^/]+\/)+)?next-env\.d\.ts$/,
+    /^(?:(?:[^/]+\/)+)?postcss\.config\.(?:js|mjs|cjs|ts)$/,
+    /^(?:(?:[^/]+\/)+)?eslint\.config\.(?:js|mjs|ts)$/,
+    /^(?:README|CHANGELOG|CONTRIBUTING)\.md$/, /^\.npmignore$/, /^docs\//,
+    /^\.changeset\//, /^\.github\/(?:renovate\.json|dependabot\.yml)$/,
+    /^\.github\/workflows\/(?:deploy[^/]*|publish|crawl(?:-[a-z0-9]+)*|refresh(?:-[a-z0-9]+)*)\.ya?ml$/,
+    /^vercel\.json$/, /^apps\/[a-z0-9][a-z0-9_-]*\/vercel\.json$/,
+    /^_workspace\/03_dev\/db-changelog\.md$/, /^_workspace\/RELEASE\/changelog-draft\.md$/,
+    /^(?:package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|\.nvmrc|CLAUDE\.md)$/,
+    /^apps\/[^/]+\/(?:package\.json|\.nvmrc)$/,
+    /^(?:(?:[^/]+\/)+)?(?:tsconfig(?:\.[^.]+)?\.json|vite\.config\.ts|vitest(?:\.[^.]+)?\.config\.ts|playwright\.config\.ts)$/,
+    /^(?:(?:[^/]+\/)+)?src\/vite-env\.d\.ts$/,
+    /^(?:eslint\.config\.js|\.prettierrc)$/,
+    /^(?:(?:[^/]+\/)+)?eslint\.config\.js$/,
+    /^\.husky\//,
+    /^(?:(?:[^/]+\/)+)?src\/test\//,
+    /^(?:(?:[^/]+\/)+)?\.storybook\//,
+    /^(?:(?:[^/]+\/)+)?e2e\/(?:fixtures|helpers)(?:\/|\.)/,
+  ],
+
+  // developer는 **빈 소유권**이다. 스팩(layerMap)이 있으면 그것이 소유를 공급하고, 없으면
+  // 아무것도 쓸 수 없다. FSD 기본 경로를 폴백으로 주면 그 순간 다시 경로 처방이 된다 —
+  // 구조 지시 빌더 6종을 걷어낸 이유가 바로 그것이었다(2026-08-26).
+  developer: [],
+
   'ai-eval-designer': [/^_workspace\/02_design\/eval-plan\.md$/],
-  'ai-observability-builder': [/^packages\/observability\//],
   'ai-requirements-analyst': [
     // ai-requirements는 search-portal 파일럿 실측(24KB>20KB)으로 sharded 형태 허용 —
     // autonomy-risk-matrix는 실측 없어 flat 유지 (근거 없는 선제 확장 금지)
@@ -65,82 +99,13 @@ export const AGENT_OWNERSHIP = {
   ],
   // ai-threat-model은 search-portal 파일럿 실측(22.5KB>20KB)으로 sharded 허용 — 결함 4·5호와 동일 클래스 3번째 재현
   'ai-threat-modeler': [/^_workspace\/02_design\/ai-threat-model(?:\.md|\/.+)$/],
-  'analytics-agent-builder': [
-    /^packages\/semantic-model\//,
-    /^packages\/analytics-agent\//,
-  ],
   'analytics-domain-architect': [/^_workspace\/02_design\/analytics-architecture\.md$/],
-  'analytics-implementation-builder': [
-    appPath('src/entities/analytics/'),
-    appPath('src/features/(?:chart-builder|dashboard-editor)/'),
-    appPath('src/widgets/(?:chart-panel|dashboard-grid)/'),
-  ],
   'api-schema-designer': [/^_workspace\/02_design\/api-schema(?:\.md|\/.+)$/],
-  'app-shell-builder': [
-    exactAppFile('index\\.html'),
-    exactAppFile('src/main\\.tsx'),
-    appPath('src/app/(?:App\\.tsx|theme\\.ts|style\\.css|providers/RouterProvider\\.tsx|routes/(?:Routes\\.tsx|index\\.ts))$'),
-    appPath('src/pages/home/'),
-    exactAppFile('src/shared/utils/webVitals\\.ts'),
-  ],
-  'changelog-writer': [/^_workspace\/RELEASE\/changelog-draft\.md$/, /^CHANGELOG\.md$/, /^\.changeset\/[^/]+\.md$/],
-  'changeset-setup': [/^\.changeset\/config\.json$/],
-  'component-builder': [appPath('src/shared/ui/'), appPath('src/features/[^/]+/ui/'), appPath('src/widgets/')],
   'component-designer': [/^_workspace\/02_design\/component-spec(?:\.md|\/.+)$/],
-  'client-domain-state-builder': [
-    appPath('src/entities/[^/]+/model/(?:store|schema|selectors|invariants)\\.ts$'),
-    appPath('src/entities/[^/]+/index\\.ts$'),
-  ],
-  'code-review-agent-builder': [
-    /^packages\/code-review\//,
-    /^workers\/code-review\//,
-  ],
-  'customer-support-agent-builder': [
-    /^packages\/customer-support\//,
-    appPath('src/features/ai-support/'),
-  ],
-  'data-ui-binder': [appPath('src/pages/'), appPath('src/widgets/'), appPath('src/features/[^/]+/ui/')],
   'data-governance-architect': [/^_workspace\/02_design\/data-governance\.md$/],
-  'db-migration-writer': [
-    appPath('migrations/'),
-    appPath('scripts/migrate\\.(?:ts|mjs)$'),
-    exactAppFile('docs/DB\\.md'),
-    /^_workspace\/03_dev\/db-changelog\.md$/,
-  ],
-  'external-data-pipeline-builder': [
-    /^packages\/ingestion\//,
-    /^scripts\/ingestion\//,
-    /^workers\/ingestion\//,
-    appPath('src/shared/ingestion/'),
-  ],
-  'deploy-ci-writer': [
-    /^\.github\/workflows\/deploy[^/]*\.ya?ml$/,
-    /^\.github\/(?:renovate\.json|dependabot\.yml)$/,
-    exactAppFile('Dockerfile'),
-    exactAppFile('nginx\\.conf'),
-    appPath('deploy/'),
-  ],
   'design-preview-builder': [/^_workspace\/02_design\/preview\//],
   'design-system-architect': [/^_workspace\/02_design\/design-system(?:\.md|\/.+)$/],
-  'entity-query-builder': [appPath('src/entities/')],
-  'enterprise-search-builder': [
-    /^workers\/ingestion\//,
-    /^packages\/enterprise-search\//,
-  ],
-  'feature-mutation-builder': [appPath('src/features/(?!live-mode/)[^/]+/api/')],
   'feature-planner': [/^_workspace\/01_plan\/feature-plan(?:\.md|\/.+)$/],
-  'form-state-builder': [appPath('src/features/(?!live-mode/)[^/]+/model/'), appPath('src/shared/modal/')],
-  'human-approval-builder': [
-    /^packages\/approval-policy\//,
-    appPath('src/features/ai-approval/'),
-  ],
-  'i18n-builder': [
-    /^_workspace\/02_design\/i18n-spec(?:\.md|\/.+)$/,
-    appPath('src/shared/lang/'),
-  ],
-  'ingestion-ci-writer': [
-    /^\.github\/workflows\/(?:crawl|refresh)(?:-[a-z0-9]+)*\.ya?ml$/,
-  ],
   'ingestion-contract-designer': [
     /^_workspace\/02_design\/ingestion-contract\.md$/,
     /^_workspace\/02_design\/runtime-data-contract\.json$/,
@@ -148,121 +113,25 @@ export const AGENT_OWNERSHIP = {
   ],
   'layout-designer': [/^_workspace\/02_design\/layout-spec(?:\.md|\/.+)$/],
   'lib-api-designer': [/^_workspace\/02_design\/api-design\.md$/],
-  'lib-core-builder': [/^src\/(?:core|utils|types|__tests__)\//, /^src\/index\.ts$/],
-  'lib-docs-generator': [/^(?:README|CHANGELOG|CONTRIBUTING)\.md$/, /^docs\//],
-  'lib-scaffolder': [/^package\.json$/, /^(?:tsup|vitest)\.config\.ts$/, /^tsconfig(?:\.build)?\.json$/, /^src\/index\.ts$/],
-  'lib-story-builder': [/^package\.json$/, /^\.storybook\//, /^src\/.+\.stories\.[jt]sx?$/],
-  'mock-api-builder': [appPath('src/mocks/'), exactAppFile('src/main\\.tsx'), exactAppFile('public/mockServiceWorker\\.js')],
-  'model-gateway-builder': [/^packages\/model-gateway\//],
-  'next-app-scaffolder': [
-    appPath('next\\.config\\.(?:js|mjs|ts)$'),
-    exactAppFile('next-env\\.d\\.ts'),
-    appPath('tsconfig(?:\\.[^.]+)?\\.json$'),
-    appPath('eslint\\.config\\.(?:js|mjs|ts)$'),
-    appPath('postcss\\.config\\.(?:js|mjs|cjs|ts)$'),
-  ],
   'next-contract-designer': [
     /^_workspace\/02_design\/next-contract-matrices\.md$/,
     /^_workspace\/02_design\/build-environment\.json$/,
   ],
-  'next-runtime-builder': [
-    appPath('(?:src/)?app/'),
-    appPath('(?:src/)?components/'),
-    appPath('(?:src/)?lib/'),
-  ],
-  'package-publish-metadata': [/^package\.json$/, /^\.npmignore$/],
   'performance-budget-designer': [/^_workspace\/02_design\/performance-budget(?:\.md|\/.+)$/],
-  'package-scaffolder': [/^(?:package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|\.nvmrc|CLAUDE\.md)$/, /^apps\/[^/]+\/(?:package\.json|\.nvmrc)$/],
-  'planning-facilitator': [
-    /^_workspace\/01_plan\/planning-context(?:\.md|\/.+)$/,
-    /^_workspace\/01_plan\/decision-log(?:\.md|\/.+)$/,
-  ],
   'planning-synthesizer': [/^_workspace\/01_plan\/project-brief\.md$/],
-  'publish-ci-writer': [/^\.github\/workflows\/publish\.ya?ml$/],
   'release-manager': [/^_workspace\/RELEASE\//],
   'requirements-analyst': [/^_workspace\/01_plan\/requirements(?:\.md|\/.+)$/],
-  'route-builder': [appPath('src/app/routes/'), appPath('src/pages/'), appPath('src/widgets/layout/')],
-  'shared-foundation-builder': [
-    appPath('src/shared/(?!realtime/)'),
-    appPath('src/mocks/(?:handlers/index\\.ts|browser\\.ts|server\\.ts)$'),
-    appPath('\\.env(?:\\.[^.]+)?$'),
-    exactAppFile('\\.gitignore'),
-    // vite-serverless-hybrid의 루트 api/(핸들러+_lib 가드)는 서버측 shared 런타임 기반이다 —
-    // search-portal 파일럿 실측: hybrid greenfield에서 api/ 소유자가 레지스트리에 없었음(결함 13호).
-    // appPath('api/')는 미앵커라 src/features/*/api/(feature-mutation-builder)·(?:src/)?app/api/
-    // (next-runtime-builder)·src/features/live-mode/api/(realtime-data-builder)와 겹친다(적대 검토
-    // HIGH) — 프리픽스 세그먼트에 src/·app/을 배제해 프로젝트 루트 api/만 매칭한다.
-    /^(?:(?!(?:src|app)\/)[^/]+\/)*api\//,
-  ],
-  'seo-meta-builder': [
-    /^_workspace\/02_design\/seo-spec(?:\.md|\/.+)$/,
-    appPath('public/robots\\.txt$'),
-    appPath('public/sitemap[^/]*\\.xml$'),
-    appPath('src/shared/seo/'),
-  ],
   'state-contract-designer': [/^_workspace\/02_design\/state-contract(?:\.md|\/.+)$/],
   'system-architect': [/^_workspace\/02_design\/solution-design(?:\.md|\/.+)$/],
   'source-artifact-ingestor': [/^_workspace\/(?:00_source|01_plan|02_design)\//],
   'tech-advisor': [/^_workspace\/01_plan\/tech-stack(?:\.md|\/.+)$/],
   'timeseries-architect': [/^_workspace\/02_design\/timeseries-architecture\.md$/],
-  'tool-adapter-builder': [
-    /^packages\/ai-contracts\//,
-    /^packages\/tool-adapters\//,
-  ],
   'tool-contract-designer': [/^_workspace\/02_design\/tool-contracts\.md$/],
-  'test-scaffolder': [
-    appPath('(?:vitest|playwright)\\.config\\.ts$'),
-    appPath('\\.storybook/'),
-    appPath('src/test/'),
-    appPath('e2e/(?:fixtures|helpers)(?:/|\\.)'),
-  ],
-  'test-writer': [
-    appPath('src/.+\\.(?:test|spec)\\.[jt]sx?$'),
-    appPath('src/.+/__tests__/'),
-    appPath('e2e/.+\\.spec\\.ts$'),
-    // 프로젝트 루트 tests/(서버 핸들러 unit·가드·production-boundary 스위트)는 test-writer
-    // 소유다 — search-portal 파일럿 실측: package 스크립트(test:api 등)와
-    // vitest.production.config.ts include가 tests/를 참조하는데 소유자가 없었음(결함 15호).
-    // 13호 fix와 동일하게 프리픽스 src/·app/ 배제로 루트 tests/만 매칭(중간 tests/ 세그먼트 배제).
-    /^(?:(?!(?:src|app)\/)[^/]+\/)*tests\//,
-  ],
-  'tooling-scaffolder': [
-    // vitest 변형 config(vitest.production.config.ts 등)는 tsconfig와 동일한 가변 그룹 관용구 —
-    // search-portal 파일럿 실측(결함 12호: production-boundary config 소유 공백으로 Write 차단)
-    appPath('(?:tsconfig(?:\\.[^.]+)?\\.json|vite\\.config\\.ts|vitest(?:\\.[^.]+)?\\.config\\.ts|playwright\\.config\\.ts)$'),
-    exactAppFile('src/vite-env\\.d\\.ts'),
-    /^(?:eslint\.config\.js|\.prettierrc)$/,
-    appPath('eslint\\.config\\.js$'),
-    /^\.husky\//,
-    appPath('src/test/'),
-  ],
   'ux-researcher': [/^_workspace\/01_plan\/ux-brief(?:\.md|\/.+)$/],
-  'browser-agent-builder': [
-    /^apps\/browser-runner\//,
-    /^packages\/browser-agent\//,
-  ],
-  'realtime-data-builder': [
-    appPath('src/shared/realtime/'),
-    appPath('src/features/live-mode/(?:api|model)/'),
-    exactAppFile('src/features/live-mode/index\\.ts'),
-  ],
-  'vercel-config-writer': [
-    /^vercel\.json$/,
-    /^apps\/[a-z0-9][a-z0-9_-]*\/vercel\.json$/,
-  ],
-  'version-file-updater': [/^(?:package\.json|CHANGELOG\.md)$/, /^\.changeset\/[^/]+\.md$/],
-  'web-observability-builder': [
-    /^_workspace\/02_design\/observability-spec(?:\.md|\/.+)$/,
-    appPath('src/shared/observability/'),
-  ],
   'visual-baseline-manager': [/^_workspace\/02_design\/visual-baseline-manifest\.json$/],
   'visual-contract-designer': [
     /^_workspace\/02_design\/visual-qa-contract\.md$/,
     /^_workspace\/02_design\/visual-qa-contract\.json$/,
-  ],
-  'visual-test-writer': [
-    appPath('e2e/.+\\.visual\\.spec\\.ts$'),
-    appPath('src/.+\\.visual\\.stories\\.tsx$'),
   ],
 }
 
@@ -298,19 +167,12 @@ export const DEFAULT_LAYER_MAP = {
 const UNUSED_DEFAULT_LAYER_MAP_NOTE = DEFAULT_LAYER_MAP
 
 // 역할 → 논리 레이어. 레이어 이름은 layerMap의 키와 맞춘다.
-export const AGENT_LAYER_ROLES = {
-  'entity-query-builder': ['domainModel'],
-  'client-domain-state-builder': ['domainModel', 'clientState'],
-  'feature-mutation-builder': ['featureLogic'],
-  'form-state-builder': ['featureLogic'],
-  'component-builder': ['sharedKernel', 'featureUI', 'composedUI'],
-  'route-builder': ['routes'],
-  'data-ui-binder': ['routes', 'composedUI', 'featureUI'],
-  'app-shell-builder': ['entry', 'appShell'],
-  'test-writer': ['unitTests'],
-  'i18n-builder': ['i18n'],
-  'seo-meta-builder': ['seo'],
-}
+// 2026-08-26: 역할→레이어 매핑이 비었다. 이 표는 빌더마다 layerMap의 한 조각을 떼어 주기
+// 위해 있었는데, 구현 에이전트가 `developer` 하나로 합쳐지면서 조각낼 대상이 없어졌다 —
+// `resolveDeveloperOwnership`이 layerMap 전체를 주고 스폰 범위가 그 위에서 좁힌다.
+// 빈 표를 남기는 이유: `resolveSpecOwnership`은 역할 매핑이 없는 에이전트에 null을 돌려주고
+// 호출자가 등록부로 폴백한다 — 그 경로(fail-closed)를 지우지 않는다.
+export const AGENT_LAYER_ROLES = {}
 
 // 경로를 정규화한다 — 선행 ./ 제거, 후행 / 보장(디렉토리 접두 매칭용).
 const normalizeLayerPath = value => {
@@ -344,11 +206,45 @@ export const findLayerOverlaps = layerMap => {
 // 스팩에서 이 에이전트의 쓰기 패턴을 만든다.
 // fail-closed: 역할 매핑이 없거나, 매핑된 레이어가 layerMap에 선언되지 않았으면 **null**을
 // 돌려 호출자가 기본 등록부로 돌아가게 한다. 절대 "선언 없음 → 전체 허용"이 되지 않는다.
-export const resolveSpecOwnership = (specLock, agentType) => {
+// 단일 개발 에이전트(2026-08-26). 종전에는 구조 지시 빌더 6종이 각자 FSD 경로를 소유했다.
+// 실측으로 그 소유권이 이미 성립하지 않고 있었다 — `src/pages/**`를 셋이 겹쳐 갖고, 비-FSD
+// 어휘(`src/stores`·`src/hooks`·`src/components`)는 소유자가 아예 없었다. 즉 그 6종이 공급한
+// 것은 격리가 아니라 **FSD 경로 처방**이었다.
+//
+// 대신 개발 에이전트 하나가 **스팩이 선언한 레이어 전부**를 소유하고, 병렬 격리는 에이전트
+// 정체성이 아니라 스폰별 범위(change-scope의 ALLOWED_PATHS = moduleBoundaries)가 공급한다.
+// 그것이 스팩이 moduleBoundaries를 담는 이유다.
+export const DEVELOPER_AGENT = 'developer'
+
+// 개발 에이전트는 layerMap의 모든 선언 경로를 소유한다. 테스트·문서처럼 다른 에이전트가
+// 소유하는 레이어도 포함되지만, 스폰 범위가 그 위에서 다시 좁힌다.
+export const resolveDeveloperOwnership = spec => {
+  const layerMap = spec?.layerMap
+  if (!layerMap || typeof layerMap !== 'object' || Object.keys(layerMap).length === 0) return null
+  if (findLayerOverlaps(layerMap).length > 0) return null   // 겹치면 신뢰하지 않는다
+  const patterns = Object.values(layerMap)
+    .filter(path => isLayerPathDeclared(path))
+    .map(path => new RegExp(`^${appPrefix}${normalizeLayerPath(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  return patterns.length > 0 ? patterns : null
+}
+
+// 스폰별 범위 — change-scope의 ALLOWED_PATHS. 소유권과 **교집합**이다. 범위가 소유권을
+// 넓히지 못하고, 소유권이 범위를 넓히지 못한다. 둘 다 통과해야 쓸 수 있다.
+export const intersectWithScope = (patterns, allowedPaths) => {
+  if (!Array.isArray(allowedPaths) || allowedPaths.length === 0) return patterns
+  const scoped = allowedPaths
+    .filter(path => isLayerPathDeclared(path))
+    .map(path => new RegExp(`^${appPrefix}${normalizeLayerPath(path).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
+  if (scoped.length === 0) return patterns
+  return [{test: value => patterns.some(p => p.test(value)) && scoped.some(p => p.test(value)),
+           source: `scope(${allowedPaths.join(', ')})`}]
+}
+
+export const resolveSpecOwnership = (spec, agentType) => {
   const roles = AGENT_LAYER_ROLES[agentType]
   if (!roles) return null
   // 스팩이 layerMap을 주면 그것이 이긴다. 없으면 null → 호출자가 AGENT_OWNERSHIP으로 돌아간다.
-  const layerMap = specLock?.layerMap
+  const layerMap = spec?.layerMap
   if (!layerMap || typeof layerMap !== 'object' || Object.keys(layerMap).length === 0) return null
   if (findLayerOverlaps(layerMap).length > 0) return null   // 겹치면 신뢰하지 않는다
   const patterns = roles

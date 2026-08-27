@@ -1,6 +1,6 @@
 # Next Backend Patterns Contract
 
-Route Handler·Server Action의 실전 백엔드 패턴 계약이다. `app-router-boundary-contract.md`(경계)와 `rendering-deployment-contract.md`(렌더링)가 "어디서"를 정하면, 이 문서는 "어떻게"를 정한다. `next-runtime-builder`가 구현 전에 읽고, 위반은 `next-contract-verifier`의 검토 대상이다.
+Route Handler·Server Action의 실전 백엔드 패턴 계약이다. `app-router-boundary-contract.md`(경계)와 `rendering-deployment-contract.md`(렌더링)가 "어디서"를 정하면, 이 문서는 "어떻게"를 정한다. `developer`가 구현 전에 읽고, 위반은 `next-contract-verifier`의 검토 대상이다.
 
 ## 1. 엔드포인트 공통 가드 (vite-serverless-hybrid §7의 Next 이식)
 
@@ -30,7 +30,7 @@ Route Handler·Server Action의 실전 백엔드 패턴 계약이다. `app-route
 destructive/retriable mutation의 "idempotency 또는 precondition" 요구를 다음 중 하나로 구현한다:
 
 1. **Idempotency key**: 클라이언트가 생성한 key를 unique 컬럼에 저장 — 중복 요청은 최초 결과를 반환 (결제·생성 계열).
-2. **Precondition(낙관적 잠금)**: `updated_at`/version을 조건에 포함한 조건부 UPDATE — 충돌 시 409 + 최신 상태 반환 (수정 계열).
+2. **Precondition(낙관적 스팩 확정)**: `updated_at`/version을 조건에 포함한 조건부 UPDATE — 충돌 시 409 + 최신 상태 반환 (수정 계열).
 3. **자연 멱등**: DELETE는 "이미 없음"을 성공(204)으로 처리 (삭제 계열).
 
 재시도 가능한 실패(네트워크·타임아웃)와 불가능한 실패(검증·권한)를 응답 코드로 구분한다 — 클라이언트 재시도 정책이 이 구분에 의존한다.
@@ -61,11 +61,11 @@ serverless 함수는 응답 반환 후 실행을 보장하지 않는다:
 ## 7. 서버 관측 (server-side observability)
 
 - 모든 mutation과 5xx에 **structured log 한 줄**: `{ requestId, route, userId?, action, outcome, durationMs }` — 문자열 조립 로그 금지. PII·credential·body 원문을 로그에 넣지 않는다.
-- `requestId`(수신 헤더 또는 생성)를 응답 헤더와 로그에 공통으로 넣어 클라이언트 에러 보고와 서버 로그를 연결한다 — 프론트 관측(`web-observability-builder`)의 에러 이벤트가 이 ID를 첨부한다.
+- `requestId`(수신 헤더 또는 생성)를 응답 헤더와 로그에 공통으로 넣어 클라이언트 에러 보고와 서버 로그를 연결한다 — 프론트 관측(`developer`)의 에러 이벤트가 이 ID를 첨부한다.
 - 외부 API 호출은 대상·소요시간·결과를 로그에 남긴다 (비용·장애 진단의 최소 단위).
 - 에러 추적 도구가 활성(`OBSERVABILITY_MODE`)이면 서버 예외도 같은 프로젝트로 보고하되 위 redaction 규칙을 통과한 뒤 보낸다.
 
-## 완료 조건 (next-runtime-builder·verifier 공용)
+## 완료 조건 (developer·verifier 공용)
 
 - endpoint × 5종 가드 매트릭스에 공백 없음 (§1)
 - 다중 테이블 mutation이 트랜잭션 경계 없이 흩어진 곳 없음 (§2)

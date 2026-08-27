@@ -15,7 +15,7 @@ Phase 3의 늦은 통합 실패를 줄이기 위한 진단 게이트다. release
 
 ## Gate A0 — 의존성 pin 사전검증 (install 전, greenfield)
 
-`package-scaffolder`가 `package.json`을 만든 뒤 **lockfile/install 전에** 실행한다:
+`environment-scaffolder`가 `package.json`을 만든 뒤 **lockfile/install 전에** 실행한다:
 
 ```bash
 web-harness-script validate-dependency-pins --project {project-root}
@@ -25,7 +25,7 @@ exact 버전 pin이 (a) registry에 존재하는지, (b) pin 집합 내부의 pe
 검사한다(Tessl Spec Registry 착안). 이 명령은 bash 정책의 등록된 validation contract를
 경유해야 agent가 실행할 수 있다(`global-bash-policy-lib.mjs`의 `validationScriptContract`에
 등록됨 — 신규 검증 스크립트는 정책 등록 없이 문서화하면 `DENY_VALIDATION_COMMAND`로 막힌다). `FAIL`이면 install을 시작하지 않고 pin을 정정한다
-(가장 작은 owner: `tech-advisor`/`package-scaffolder`). 근거(seminar-booking 실증):
+(가장 작은 owner: `tech-advisor`/`environment-scaffolder`). 근거(seminar-booking 실증):
 tech-advisor가 존재하지 않는 버전(typescript 6.0.0)과 **install/lockfile이 WARN으로만
 흘려보내 lint까지 새어든 peer 비호환**(typescript-eslint 8.57.0이 TS7 미지원)을 냈다.
 이 게이트는 두 클래스를 install 전에 잡아 Phase 2/3 낭비를 막는다. 파싱 불가한 범위는
@@ -56,14 +56,14 @@ TIMESERIES_MODE에서 Mock이 의도적으로 뒤로 미뤄졌으면 transport i
 
 ## Gate C — Integrated Source
 
-entity query, mutation/form/domain/realtime owner와 `data-ui-binder`가 완료된 뒤:
+entity query, mutation/form/domain/realtime owner와 `developer`가 완료된 뒤:
 
 1. requirement/UX risk → screen → owner → source trace
 2. loading/error/empty/partial/permission/destructive 연결
 3. `typecheck`, `build`
 4. source mutation, unexpected lockfile/config change, production Mock boundary
 
-Gate C 통과 뒤 deployment/visual test source가 바뀌면 Phase 4에서 전체 profile과 evidence를 다시 잠근다.
+Gate C 통과 뒤 deployment/visual test source가 바뀌면 Phase 4에서 전체 profile과 evidence를 다시 확정한다.
 
 ## Gate R — 요구사항 표기 (의무 진술의 존재)
 
