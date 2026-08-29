@@ -27,6 +27,8 @@ import {createHash} from 'node:crypto'
 import {existsSync, readFileSync, statSync} from 'node:fs'
 import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 import {appendEvidenceLine, readEvidenceLog} from './evidence-log-lib.mjs'
+import {pathToFileURL} from 'node:url'
+import {readShapeChecks} from './validate-shape-checks.mjs'
 
 const BLOCK = /```json\s+web-harness:solution-design\s*\n([\s\S]*?)\n```/g
 
@@ -182,7 +184,77 @@ export const mergeSubstrate = (declaredSubstrate, defaults = readSubstrateDefaul
 }
 
 
-export const buildSpec = ({decision, digest}) => {
+// feature-plan.md에 실제로 존재하는 수용 기준 ID를 뽑는다.
+// `FEAT-007`·`TC-007-1`·`TC-007-1-2` 형태를 받는다 — 번호 깊이는 프로젝트가 정한다.
+export const extractAcceptanceIds = source =>
+  new Set(String(source ?? '').match(/\b(?:FEAT|TC)-\d+(?:-\d+)*\b/g) ?? [])
+
+// UI가 있는가 — **형태 카탈로그가 선언한다**(shape-checks.json의 shapes.<name>.userInterface).
+// 여기서 이름을 하드코딩하지 않는 이유: 새 UI 형태가 추가될 때 이 함수를 고치는 것을 잊으면
+// e2e 요구가 조용히 사라진다. 카탈로그는 형태를 추가할 때 반드시 지나가는 곳이고,
+// validate-shape-checks가 userInterface 누락·오타를 FAIL로 잡는다.
+// 반환: true(UI 있음) · false(UI 없음) · 'unknown'(카탈로그가 모르는 형태가 섞여 있다).
+// 적대 리뷰(2026-08-28)가 잡은 fail-open: 미등록 형태를 false로 퇴화시키면 targetShapes에
+// 카탈로그 밖 이름을 적는 것만으로 e2e 요구가 **조용히 증발**한다. 그렇다고 미등록 형태를
+// 실패로 만들 수는 없다 — shape-routing-contract §4가 "하네스가 모르는 것을 실패로 만들지
+// 않는다"를 이미 결정했다. 실패시키지 않되 **판단을 스팩에 되돌린다**.
+export const hasUserInterface = (targetShapes, catalog = readShapeChecks()) => {
+  const shapes = targetShapes ?? []
+  if (shapes.some(shape => catalog?.shapes?.[shape]?.userInterface === true)) return true
+  if (shapes.some(shape => catalog?.shapes?.[shape] === undefined)) return 'unknown'
+  return false
+}
+
+// 테스트 레이어 — 소유권이 여기서 나온다.
+//   unit: **항상** 필요하다. 유닛 테스트 없이 개발을 끝내지 않는다(사용자 결정 2026-08-28).
+//   e2e : **UI가 있으면** 필요하다. 화면이 있으면 화면을 통과하는 검증이 있어야 한다.
+//
+// 왜 layerMap이 아니라 별도 필드인가: layerMap은 레이어 **이름을 프로젝트가 정한다**.
+// `unit-tests`·`tests`·`spec` 중 무엇이 테스트인지 이름으로 맞히면 그것이 프록시다.
+// 스팩이 직접 "이 경로가 테스트다"라고 말하게 한다. 경로가 layerMap 값과 겹쳐도 된다
+// (유닛 테스트를 소스 옆에 두는 것이 정상이다) — 겹침 금지는 layerMap 안에서만 적용된다.
+export const validateTestLayers = (decision, catalog = readShapeChecks()) => {
+  const testLayers = decision?.testLayers ?? {}
+  if (typeof testLayers !== 'object' || Array.isArray(testLayers)) {
+    throw new LockError('TEST_LAYERS_INVALID_SHAPE', 'testLayers가 객체가 아니다')
+  }
+  requireNonEmptyString(
+    testLayers.unit,
+    'UNIT_TEST_LAYER_MISSING',
+    'testLayers.unit이 없다 — 유닛 테스트는 형태와 무관하게 항상 수행한다. 테스트가 놓일 경로를 스팩이 정해야 그 경로의 소유자가 생긴다',
+  )
+  // 미지 키를 조용히 버리지 않는다 — `integration` 같은 오타·미지원 키를 버리면 그 경로가
+  // 무소유로 남는다. targetShape 단수를 거부하는 것과 같은 규율이다.
+  for (const key of Object.keys(testLayers)) {
+    if (!['unit', 'e2e'].includes(key)) {
+      throw new LockError('TEST_LAYER_UNKNOWN_KEY', `testLayers에 알 수 없는 키 '${key}' — unit·e2e만 소유권으로 이어진다`)
+    }
+  }
+  const needsE2e = hasUserInterface(decision?.targetShapes, catalog)
+  if (needsE2e === true) {
+    requireNonEmptyString(
+      testLayers.e2e,
+      'E2E_TEST_LAYER_MISSING',
+      'testLayers.e2e가 없다 — targetShapes에 UI를 가진 형태가 있으면 e2e 테스트 레이어를 확정해야 한다(형태 카탈로그의 userInterface에서 도출)',
+    )
+  } else if (needsE2e === 'unknown') {
+    // 카탈로그 밖 형태 — UI 여부를 도출할 수 없다. 실패시키지 않되 침묵도 허용하지 않는다.
+    // 실제 경로든 `(absent — 이유)` 명시든, 스팩이 e2e에 대해 **말은 해야** 한다.
+    if (typeof testLayers.e2e !== 'string' || testLayers.e2e.trim() === '') {
+      throw new LockError(
+        'E2E_TEST_LAYER_UNDECIDED',
+        'targetShapes에 형태 카탈로그가 모르는 형태가 있다 — UI 여부를 도출할 수 없으므로 testLayers.e2e를 스팩이 정해야 한다(경로를 적거나 "(absent — 이유)"로 명시하라)',
+      )
+    }
+  } else if (testLayers.e2e !== undefined) {
+    requireNonEmptyString(testLayers.e2e, 'E2E_TEST_LAYER_EMPTY', 'testLayers.e2e가 비어 있다 — 선언하지 않을 것이면 키를 두지 마라')
+  }
+  const settled = {unit: testLayers.unit}
+  if (typeof testLayers.e2e === 'string' && testLayers.e2e.trim() !== '') settled.e2e = testLayers.e2e
+  return settled
+}
+
+export const buildSpec = ({decision, digest, acceptanceIds}) => {
   if (decision === null || typeof decision !== 'object' || Array.isArray(decision)) {
     throw new LockError('DECISION_BLOCK_INVALID_SHAPE', '결정 블록이 객체가 아니다')
   }
@@ -201,13 +273,30 @@ export const buildSpec = ({decision, digest}) => {
   // 라벨을 증거에 결박한다(적대 리뷰 2026-08-26). 이전 구현은 acceptanceRefs가 비어 있지만
   // 않으면 verifiable을 부여해, feature-plan.md가 **부재해도** 임의 ID를 적으면 통과했다 —
   // protected-core §4 "골든 5/7" 행이 실측한 라벨-증거 언바인딩의 재현이다.
-  // 한계(정직): 파일 실존까지만 대조한다. ref ID가 그 파일에 실제로 있는지는 미대조 — §4 TODO.
+  // 2026-08-28: ID 대조를 위에서 수행한다. 남은 한계는 ID가 **의미 있는** 수용 기준인지까지는 못 본다는 것.
+  // 라벨이 증거를 요구한다 — (a) 파일 실존, (b) 적은 ID의 실존. 둘 다 본다.
   if (acceptanceSource === 'feature-plan') {
     const featurePlan = (digest?.inputs ?? []).find(item => item.path === FEATURE_PLAN_INPUT)
     if (!featurePlan?.present) {
       throw new LockError(
         'ACCEPTANCE_SOURCE_WITHOUT_PLAN',
         `acceptanceSource가 feature-plan인데 ${FEATURE_PLAN_INPUT}이 없다 — 라벨은 증거를 요구한다`,
+      )
+    }
+    // 파일이 있어도 **적은 ID가 그 안에 있는지**는 별개다. 없으면 존재하지 않는 `TC-999-1`을
+    // 적어도 확정되어 기획→스팩 고리가 자기보고가 된다(§4 TODO였다, 2026-08-28 해소).
+    if (!(acceptanceIds instanceof Set)) {
+      throw new LockError(
+        'ACCEPTANCE_INDEX_MISSING',
+        'acceptanceRefs를 대조할 feature-plan 색인이 없다 — 검사 미수행을 통과로 만들지 않는다(lockSpec이 공급한다)',
+      )
+    }
+    const missing = acceptanceRefs.filter(ref => !acceptanceIds.has(ref))
+    if (missing.length > 0) {
+      throw new LockError(
+        'ACCEPTANCE_REF_NOT_FOUND',
+        `acceptanceRefs가 ${FEATURE_PLAN_INPUT}에 없는 ID를 가리킨다: ${missing.join(', ')} — 라벨은 증거를 요구한다`,
+        {missing},
       )
     }
   }
@@ -247,8 +336,12 @@ export const buildSpec = ({decision, digest}) => {
     )
   }
 
+  const testLayers = validateTestLayers({...decision, targetShapes})
+
   return {
-    schemaVersion: 1,
+    // 2 = testLayers를 담는 세대(2026-08-28). 1은 그 이전에 확정된 스팩이며 읽기 전용 이력이다 —
+    // 이미 커밋된 증거(golden T1 receipt에 결박된 spec)를 새 규칙에 맞춰 고쳐 쓰지 않는다.
+    schemaVersion: 2,
     specTier: acceptanceSource === 'feature-plan' ? 'verifiable' : 'unverifiable',
     acceptanceSource,
     acceptanceRefs,
@@ -258,6 +351,7 @@ export const buildSpec = ({decision, digest}) => {
     communication: Array.isArray(decision.communication) ? decision.communication : [],
     concurrency: Array.isArray(decision.concurrency) ? decision.concurrency : [],
     layerMap: decision.layerMap ?? {},
+    testLayers,
     libraries,
     moduleBoundaries: Array.isArray(decision.moduleBoundaries) ? decision.moduleBoundaries : [],
     nonGoals: Array.isArray(decision.nonGoals) ? decision.nonGoals : [],
@@ -310,10 +404,16 @@ export const lockSpec = projectRoot => {
     throw new LockError('SOLUTION_DESIGN_MISSING', 'solution-design.md가 없다 — 설계 단계를 먼저 실행하라', {path: designPath})
   }
   const decision = extractDecisionBlock(readFileSync(designPath, 'utf8'))
-  return buildSpec({decision, digest: digestInputs(root)})
+  const planPath = join(root, FEATURE_PLAN_INPUT)
+  const acceptanceIds = existsSync(planPath) && statSync(planPath).isFile()
+    ? extractAcceptanceIds(readFileSync(planPath, 'utf8'))
+    : new Set()
+  return buildSpec({decision, digest: digestInputs(root), acceptanceIds})
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// main guard: `file://${argv[1]}` 문자열 결합은 POSIX에서만 맞는다 — Windows 경로(D:\…)에서는
+// 절대 일치하지 않아 CLI가 통째로 no-op하고 exit 0이 된다(조용한 통과).
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2)
   const rootIndex = argv.indexOf('--project-root')
   const projectRoot = rootIndex >= 0 ? argv[rootIndex + 1] : undefined

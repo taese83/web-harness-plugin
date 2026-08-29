@@ -57,12 +57,12 @@
 
 | 트리거 | 계약 |
 |---|---|
-| v1 구현 검증 **완료 후** (브라운필드 — 전환 규칙) | `live-base-delta-contract.md` — 승인 표면은 dev server 위 라이브 델타 |
+| v1 구현 검증 **완료 후** (브라운필드) | **승인 표면 없음**(라이브 델타 제거, 2026-08-28) — 스냅샷 바탕 프리뷰가 들어오면 갱신한다 |
 | v1 구현 검증 **전** | `design-approval-contract.md` — 프리뷰가 유일한 살아있는 승인 표면 |
 | `02_design` 산출물을 갱신할 때 | `artifact-sharding-contract.md` + `validate-artifact-sharding.mjs` 실행 |
 | 사용자 확인 체크포인트를 제시할 때 | `approval-checkpoints.md` |
 
-어느 시대인지는 `live-base-delta-contract.md` 전환 규칙의 판정 기준(승인 TC 전부가 같은
+어느 시대인지는 판정 기준(승인 TC 전부가 같은
 ID의 구현 검증 기록으로 통과 확인된 시점)으로 가른다.
 
 ## 상황 C — 배포 후보 승격·릴리스 판정
@@ -91,7 +91,7 @@ iterate 라운드 산출물을 배포 후보로 낼 때(§Iterate mode: full att
 - 하네스 생성 greenfield 산출물의 후속 iterate (명명 수준 — 미검증. `react-vite-spa`
   형태의 기존 `_workspace/` 프로젝트에 상황 A 경로로 재진입할 때 실증)
 - 기존 브라운필드 서비스의 승인 표면 재진입 (명명 수준 — 미검증. `vite-serverless-hybrid`
-  형태에 상황 B 경로(라이브 델타)로 재진입하는 day-2 파일럿에서 실증)
+  형태에 상황 B 경로로 재진입하는 day-2 파일럿에서 실증 — 당시 표면은 라이브 델타였고 2026-08-28 제거됐다)
 
 상황 분류는 요청 유형과 phase 상태만 참조하며 특정 서비스의 이름·백엔드·수치를
 인코딩하지 않는다.

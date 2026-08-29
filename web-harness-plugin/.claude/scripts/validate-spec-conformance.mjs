@@ -35,6 +35,7 @@ import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 import {findWorkspaceRoot} from './web-core/profile-lib.mjs'
 import {COMMON_RECEIPT_ALIASES} from './web-core/profile-policy-lib.mjs'
 import {inspectSpecLedger, isSpecStale, readSubstrateDefaults} from './spec.mjs'
+import {pathToFileURL} from 'node:url'
 
 const SPEC_LOCK_PATH = '_workspace/03_dev/spec.json'
 const EVIDENCE_DIR = '_workspace/04_qa/evidence'
@@ -249,6 +250,110 @@ export const checkLayerMapCoverage = (spec, projectRoot, appRoot = 'src') => {
 // 어긋나므로 모순으로 보고한다 — 실측 대조가 아니라 **두 선언 사이의 충돌 검출**이다.
 export const defaultToolchain = () => ({packageManager: readSubstrateDefaults().packageManager})
 
+// 스팩이 **공유되는가**. spec.mjs가 밝히듯 이 기제의 목적은 협업이다 — 여러 사람이 같은
+// 스팩에 맞춰 개발하는 것. 그런데 스팩이 커밋되지 않으면 개발자마다 자기 실행에서
+// architecture·layerMap·libraries를 다시 도출하고, 구조가 갈리면 스타일이 갈린다.
+// 즉 **공유가 이 계약의 전제인데 종전에는 명시도 강제도 없었다**(2026-08-28 발견).
+//
+// 프록시 표기: `.gitignore` 텍스트만 본다. git이 실제로 추적하는지(이미 추적 중인 파일은
+// gitignore 무시)까지는 대조하지 않는다 — 그건 git 실행이 필요하고 이 validator는 순수
+// 파일 판정을 유지한다. 반대 방향(무시되지 않는데 커밋 안 함)도 잡지 못한다.
+export const checkSpecShared = (projectRoot, specPath) => {
+  const ignorePath = join(resolve(projectRoot), '.gitignore')
+  // .gitignore 부재는 실패가 아니다 — git의 기본은 **추적**이므로 스팩은 오히려 공유된다.
+  if (!existsSync(ignorePath)) return []
+  const patterns = readFileSync(ignorePath, 'utf8')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line !== '' && !line.startsWith('#'))
+
+  // 마지막에 이긴 패턴이 판정한다(부정 `!`는 되살림).
+  const isIgnored = target => {
+    let ignored = false
+    for (const pattern of patterns) {
+      const negated = pattern.startsWith('!')
+      const body = (negated ? pattern.slice(1) : pattern).replace(/^\//, '').replace(/\/$/, '')
+      if (body === '') continue
+      // `dir/*`는 디렉토리 자신이 아니라 **내용**을 제외한다 — 이 구분이 재포함 가능 여부를 가른다.
+      const contentsOnly = body.endsWith('/*')
+      const base = contentsOnly ? body.slice(0, -2) : body
+      const hit = contentsOnly
+        ? target.startsWith(`${base}/`)
+        : target === base || target.startsWith(`${base}/`) || target.split('/').includes(base)
+      if (hit) ignored = !negated
+    }
+    return ignored
+  }
+
+  // git 규칙: **조상 디렉토리가 제외되면 그 아래 파일은 `!`로 되살릴 수 없다.**
+  // 실측(2026-08-28, 실제 git add): `_workspace` + `!_workspace/03_dev/spec.json` → 여전히 무시.
+  // 되살리려면 `_workspace/*`처럼 **내용만** 제외해야 한다. 종전 구현은 파일 부정을 그대로
+  // 인정해 이 조합을 "공유됨"으로 통과시켰고 회귀 테스트가 그 오판을 고정하고 있었다 —
+  // 게이트가 잡으려던 바로 그 상태의 fail-open이다(적대 리뷰 2026-08-28이 지적).
+  const segments = specPath.split('/')
+  const ancestors = segments.slice(0, -1).map((_segment, index) => segments.slice(0, index + 1).join('/'))
+  for (const ancestor of ancestors) {
+    if (isIgnored(ancestor)) {
+      return [{
+        kind: 'specShared',
+        reason: `${specPath}의 상위 \`${ancestor}\`가 .gitignore에 걸린다 — 상위가 제외되면 파일 부정(!)으로 되살릴 수 없다. 스팩이 공유되지 않으면 개발자마다 다른 스팩으로 개발한다(협업 계약 붕괴)`,
+      }]
+    }
+  }
+  return isIgnored(specPath)
+    ? [{kind: 'specShared', reason: `${specPath}가 .gitignore에 걸린다 — 스팩이 공유되지 않으면 개발자마다 다른 스팩으로 개발한다(협업 계약 붕괴)`}]
+    : []
+}
+
+// 확정된 수용 기준(TC)이 **실제로 테스트에서 참조되는가**.
+//
+// 왜: 기획이 TC를 만들고 스팩이 그것을 인용해도, 그 TC가 테스트로 이어졌는지 보는 곳이
+// 없었다. 릴리스 게이트가 보는 것은 "테스트 파일 0개"뿐이라 파일 하나만 있으면 TC 커버리지가
+// 0이어도 통과한다 — 기획→검증 고리의 마지막 한 칸이 비어 있었다(2026-08-28).
+//
+// 어디를 보는가: **스팩이 선언한 테스트 레이어**(`testLayers`)다. 경로를 처방하지 않고
+// 프로젝트가 정한 곳만 읽는다. 선언이 없으면(구세대 스팩) 판정하지 않는다.
+//
+// 프록시 표기: 파일 **텍스트에 ID 문자열이 있는가**만 본다. 그 테스트가 실제로 그 기준을
+// 검증하는지는 기계가 모른다 — 주석만 달아도 통과한다(fail-open). 그래도 0과 1은 가른다:
+// 지금은 인용조차 없어도 통과하기 때문이다. 진짜 대조는 사람 리뷰(code-reviewer)의 몫이다.
+export const checkAcceptanceCoverage = (spec, projectRoot) => {
+  if (spec?.specTier !== 'verifiable') return []   // 주장하지 않은 것을 요구하지 않는다
+  const refs = Array.isArray(spec.acceptanceRefs) ? spec.acceptanceRefs : []
+  if (refs.length === 0) return []
+  const layers = Object.values(spec.testLayers ?? {}).filter(value => typeof value === 'string' && value.trim() !== '' && !/^\(.*\)$/.test(value.trim()))
+  if (layers.length === 0) {
+    return [{kind: 'acceptanceCoverage', reason: 'verifiable 스팩인데 testLayers가 없다 — TC가 테스트로 이어졌는지 판정할 수 없다'}]
+  }
+  const root = resolve(projectRoot)
+  const collect = (directory, out) => {
+    let entries
+    try { entries = readdirSync(directory, {withFileTypes: true}) } catch { return out }
+    for (const entry of entries) {
+      const full = join(directory, entry.name)
+      if (entry.isDirectory()) { if (entry.name !== 'node_modules') collect(full, out) }
+      else if (/\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(entry.name)) out.push(full)
+    }
+    return out
+  }
+  const files = []
+  for (const layer of layers) {
+    const target = resolve(root, layer.replace(/^\.\//, ''))
+    if (!existsSync(target)) continue
+    if (statSync(target).isDirectory()) collect(target, files)
+    else files.push(target)
+  }
+  if (files.length === 0) {
+    return [{kind: 'acceptanceCoverage', reason: `선언된 testLayers(${layers.join(', ')})에 테스트 파일이 없다 — 확정된 수용 기준 ${refs.length}건이 검증되지 않는다`}]
+  }
+  let corpus = ''
+  for (const file of files) { try { corpus += readFileSync(file, 'utf8') } catch { /* 읽을 수 없는 파일은 건너뛴다 */ } }
+  const uncovered = refs.filter(ref => !corpus.includes(ref))
+  return uncovered.length === 0
+    ? []
+    : [{kind: 'acceptanceCoverage', reason: `확정된 수용 기준이 테스트에서 인용되지 않는다: ${uncovered.join(', ')} — TC ID를 테스트 이름이나 주석에 남겨 추적을 잇는다`}]
+}
+
 export const checkToolchainAlignment = (spec, toolchain) => {
   const substrate = spec.constitution?.substrate ?? {}
   const declared = substrate.packageManager?.value
@@ -307,6 +412,8 @@ export const inspectSpecConformance = ({projectRoot, toolchain = defaultToolchai
   }
   for (const item of checkLayerMap(spec, root)) failures.push({kind: 'layerMap', ...item})
   for (const item of checkToolchainAlignment(spec, toolchain)) failures.push({kind: 'toolchain', ...item})
+  for (const item of checkSpecShared(root, SPEC_LOCK_PATH)) failures.push(item)
+  for (const item of checkAcceptanceCoverage(spec, root)) failures.push(item)
 
   const shapes = checkTargetShapes(spec, root)
   for (const item of shapes.failures) failures.push(item)
@@ -346,7 +453,9 @@ export const inspectSpecConformance = ({projectRoot, toolchain = defaultToolchai
   return {status: failures.length > 0 ? 'FAIL' : 'PASS', failures, unverifiable, uncoveredPaths: uncovered, requiredChecks: evidence.required, unimplementedChecks: evidence.unimplemented, evidenceState: evidence.evidenceState, notes}
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// main guard: `file://${argv[1]}` 문자열 결합은 POSIX에서만 맞는다 — Windows 경로(D:\…)에서는
+// 절대 일치하지 않아 CLI가 통째로 no-op하고 exit 0이 된다(조용한 통과).
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const argv = process.argv.slice(2)
   const rootIndex = argv.indexOf('--project-root')
   const projectRoot = rootIndex >= 0 ? argv[rootIndex + 1] : undefined

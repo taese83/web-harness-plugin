@@ -4,12 +4,13 @@ import {closeSync, constants as fsConstants, createReadStream, existsSync, fstat
 import {createServer} from 'node:http'
 import {dirname, extname, join, relative, resolve, sep} from 'node:path'
 import {fileURLToPath} from 'node:url'
-import {inspectDesignPreview, recordPreviewApproval} from '../../.claude/scripts/design-preview-status-lib.mjs'
+import {inspectDesignPreview, recordPreviewApproval, writeSourceSnapshot} from '../../.claude/scripts/design-preview-status-lib.mjs'
+import {inspectCandidateBase, snapshotProjectDigest} from './src/change-candidates.mjs'
 import {recordImplementationVerification} from './src/change-request-implementation.mjs'
-import {CodexRunManager} from './src/codex-runs.mjs'
+import {CodexRunManager, buildImpactContext} from './src/codex-runs.mjs'
 import {EXECUTOR_KINDS, createExecutorAdapter} from './src/executor-adapters.mjs'
 import {WorkspaceCatalog, computeTcSourceStamp, hasTcRunCommand} from './src/indexer.mjs'
-import {createLiveBasePreviewServer, extractHtmlTitle, parseLiveBaseTarget, parseLiveIdentity} from './src/live-base-preview.mjs'
+import {parseLiveBaseTarget} from './src/live-server-ops.mjs'
 import {buildRoutePayload, buildWorkflowPayload} from './src/workflow.mjs'
 
 const packageRoot = dirname(fileURLToPath(import.meta.url))
@@ -37,9 +38,6 @@ const parseArguments = argv => {
     else if (key === '--executor') values.executor = value
     else if (key === '--impact-model') values.impactModel = value
     else if (key === '--apply-model') values.applyModel = value
-    else if (key === '--live-base') values.liveBase = value
-    else if (key === '--live-base-root') values.liveBaseRoot = resolve(value)
-    else if (key === '--live-base-port') values.liveBasePort = Number(value)
     else throw new Error(`Unknown argument: ${key}`)
   }
   for (const [name, port] of [['port', values.port], ['preview-port', values.previewPort]]) {
@@ -47,12 +45,6 @@ const parseArguments = argv => {
   }
   if (values.port !== 0 && values.port === values.previewPort) throw new Error('console and preview ports must differ')
   if (!EXECUTOR_KINDS.includes(values.executor)) throw new Error(`executor must be one of: ${EXECUTOR_KINDS.join(', ')}`)
-  if (values.liveBase || values.liveBaseRoot) {
-    if (!parseLiveBaseTarget(values.liveBase)) throw new Error('live-base must be a loopback http URL (http://127.0.0.1:<port>)')
-    if (!values.liveBaseRoot) throw new Error('live-base requires --live-base-root <project-root>')
-    values.liveBasePort = values.liveBasePort ?? 4312
-    if (!Number.isInteger(values.liveBasePort) || values.liveBasePort < 1024 || values.liveBasePort > 65535) throw new Error('live-base-port must be an integer between 1024 and 65535')
-  }
   return values
 }
 
@@ -146,7 +138,7 @@ const streamFile = (request, response, path, headers = {}) => {
   createReadStream(path).pipe(response)
 }
 
-export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort = 4311, executorKind = 'auto', executorModels = null, codexRunManager = null, liveBase = null}) => {
+export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort = 4311, executorKind = 'auto', executorModels = null, codexRunManager = null}) => {
   if (!codexRunManager) {
     const adapter = createExecutorAdapter({kind: executorKind})
     codexRunManager = new CodexRunManager({connectionProbe: adapter.probe, executor: adapter.execute, models: executorModels})
@@ -184,6 +176,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
     const projectReviewDecisions = url.pathname.match(/^\/api\/projects\/([^/]+)\/change-requests\/(CHG-\d{8}-\d{3})\/review-decisions$/)
     const projectImplementationVerifications = url.pathname.match(/^\/api\/projects\/([^/]+)\/change-requests\/(CHG-\d{8}-\d{3})\/implementation-verifications$/)
     const projectPreviewApproval = url.pathname.match(/^\/api\/projects\/([^/]+)\/preview-approval$/)
+    const projectPreviewResnapshot = url.pathname.match(/^\/api\/projects\/([^/]+)\/preview-resnapshot$/)
     const projectWorkflow = url.pathname.match(/^\/api\/projects\/([^/]+)\/workflow$/)
     const projectWorkflowRoute = url.pathname.match(/^\/api\/projects\/([^/]+)\/workflow\/route$/)
     if (request.method === 'GET' && projectWorkflowRoute) {
@@ -230,6 +223,73 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         return json(response, status, errorBody(code, message))
       }
     }
+    // 스냅샷 재고정 — STALE(SOURCE_CHANGED)의 유일한 출구를 기획자 손에 준다.
+    //
+    // 종전에는 이 동작이 `validate-design-preview.mjs --write-source-snapshot`뿐이어서
+    // 기획자는 콘솔에서 아무것도 할 수 없었다(승인 폼은 UNAPPROVED에서만 렌더된다).
+    // 게이트를 낮추는 게 아니라 **막힌 경로를 연다** — 재고정은 승인이 아니고,
+    // 이 호출이 성공하면 상태는 APPROVED가 아니라 UNAPPROVED가 되어 승인 게이트가
+    // 그대로 남는다. 사람이 바뀐 스펙을 확인했다는 증언(attested)과 그 시점의 source
+    // digest를 함께 요구한다.
+    //
+    // **감사 흔적은 남기지 않는다**: 승인(design-review.md append-only)과 달리
+    // traceability.json의 digest만 갱신되고 주체·시점·증언은 기록되지 않는다.
+    // 종전 주석은 "기록에 남긴다"고 적어 사실과 달랐다(harness-change-reviewer MEDIUM).
+    // 재고정에도 감사 기록이 필요하다면 별도 결정으로 다룬다.
+    if (request.method === 'POST' && projectPreviewResnapshot) {
+      if (!isAllowedConsoleOrigin(request.headers.origin, boundConsolePort) || request.headers['x-web-harness-intent'] !== 'resnapshot-preview') {
+        return json(response, 403, errorBody('PREVIEW_RESNAPSHOT_FORBIDDEN', 'Preview resnapshot origin or intent was rejected'))
+      }
+      if (!request.headers['content-type']?.toLowerCase().startsWith('application/json')) {
+        return json(response, 415, errorBody('UNSUPPORTED_MEDIA_TYPE', 'Preview resnapshot requires application/json'))
+      }
+      try {
+        const input = await readJsonBody(request)
+        const projectId = decodePathSegment(projectPreviewResnapshot[1])
+        if (projectId === null) return json(response, 400, errorBody('BAD_URL', 'Invalid URL'))
+        catalog.refresh()
+        const project = catalog.project(projectId)
+        if (!project) return json(response, 404, errorBody('PROJECT_NOT_FOUND', 'Project was not found'))
+        if (input.attested !== true) {
+          return json(response, 400, errorBody('PREVIEW_RESNAPSHOT_NOT_ATTESTED', 'Resnapshot requires an explicit attestation that the changed sources were reviewed'))
+        }
+        const current = inspectDesignPreview(project.root)
+        // SOURCE_CHANGED 전용이다. APPROVED_*_CHANGED는 스냅샷이 이미 현재 소스와 같고
+        // **승인 기록만 뒤처진** 상태라, 재고정해 봐야 같은 digest를 다시 쓸 뿐이다
+        // (사용자 보고: "스냅샷 고정해도 안되"). 그 상태의 출구는 재승인이다.
+        if (current.status !== 'STALE' || current.reason !== 'SOURCE_CHANGED') {
+          return json(response, 409, errorBody('PREVIEW_NOT_RESNAPSHOTTABLE', `Preview is ${current.status}/${current.reason ?? '-'}; resnapshot applies only to STALE previews whose recorded source snapshot drifted`))
+        }
+        // 사용자가 본 변경 집합과 지금 디스크의 변경 집합이 같아야 한다. 다르면 확인 대상이
+        // 이미 달라진 것이므로 조용히 덮지 않고 되돌려보낸다.
+        if (!/^[0-9a-f]{64}$/.test(input.sourceDigest ?? '') || current.source?.digest !== input.sourceDigest) {
+          return json(response, 409, errorBody('PREVIEW_SOURCE_DIGEST_MISMATCH', 'The sources changed since they were reviewed; refresh and review the current changes before resnapshotting'))
+        }
+        // 증언에는 대상이 있어야 한다. 바뀐 파일을 하나도 제시하지 못하는데 "확인했다"를
+        // 받으면 근거 없는 도장이다 — 목록이 비었거나 파생 불가면 수리하지 않는다
+        // (harness-change-reviewer HIGH, §4 공허 통과 클래스).
+        const recorded = current.traceability?.sourceSnapshot?.files
+        const observed = current.source?.files
+        if (!Array.isArray(recorded) || !Array.isArray(observed)) {
+          return json(response, 409, errorBody('PREVIEW_CHANGES_UNDERIVABLE', 'Per-file source snapshot is unavailable; resnapshot from the harness session instead'))
+        }
+        const before = new Map(recorded.map(record => [record.path, record.sha256]))
+        const after = new Map(observed.map(record => [record.path, record.sha256]))
+        const changedCount = [...new Set([...before.keys(), ...after.keys()])]
+          .filter(path => before.get(path) !== after.get(path)).length
+        if (changedCount === 0) {
+          return json(response, 409, errorBody('PREVIEW_NO_SOURCE_CHANGES', 'No source file changed since the recorded snapshot; there is nothing to attest to'))
+        }
+        const result = writeSourceSnapshot(project.root)
+        catalog.refresh()
+        return json(response, 201, {status: result.status, reason: result.reason ?? null, attestedChangedFiles: changedCount})
+      } catch (error) {
+        const status = Number.isInteger(error.status) ? error.status : 500
+        const code = typeof error.code === 'string' ? error.code : 'PREVIEW_RESNAPSHOT_FAILED'
+        const message = status === 500 ? 'Preview source snapshot could not be written' : error.message
+        return json(response, status, errorBody(code, message))
+      }
+    }
     if (request.method === 'POST' && projectPreviewApproval) {
       if (!isAllowedConsoleOrigin(request.headers.origin, boundConsolePort) || request.headers['x-web-harness-intent'] !== 'record-preview-approval') {
         return json(response, 403, errorBody('PREVIEW_APPROVAL_FORBIDDEN', 'Preview approval origin or intent was rejected'))
@@ -270,8 +330,21 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         ) {
           return json(response, 200, publicApproval(current))
         }
-        if (current.status !== 'UNAPPROVED') {
-          return json(response, 409, errorBody('PREVIEW_NOT_APPROVABLE', `Preview status is ${current.status}; Console approval is allowed only for UNAPPROVED previews`))
+        // 허용 상태: UNAPPROVED + **승인 이후 변경된** STALE 둘(재승인).
+        //
+        // Round 21은 "STALE 재승인은 하네스 재생성 절차 전용"으로 잠갔다. 그 잠금을
+        // 사용자 결정으로 되열었다(Round 27) — 근거는 재생성이 이미 끝난 상태에서
+        // 확정만 남았을 때 기획자가 Console에서 아무것도 할 수 없다는 실사용 보고다.
+        // 문서·테스트·JUDGMENT를 같은 변경에서 갱신한다(리뷰어 조건).
+        //
+        // 넓히는 것은 **두 reason뿐**이다. SOURCE_CHANGED(스냅샷 드리프트)는 재고정이
+        // 먼저이므로 여전히 승인 대상이 아니고, 구조 결함(MISSING/INVALID/DRAFT)도
+        // 그대로 막힌다. 증언·origin·intent·digest 일치는 하나도 빼지 않는다:
+        // 사람이 **본 그 프리뷰**만, recordedVia: console-user-attested로 기록된다.
+        const reapprovableReason = ['APPROVED_SOURCE_CHANGED', 'APPROVED_PREVIEW_CHANGED']
+        const reapprovable = current.status === 'STALE' && reapprovableReason.includes(current.reason)
+        if (current.status !== 'UNAPPROVED' && !reapprovable) {
+          return json(response, 409, errorBody('PREVIEW_NOT_APPROVABLE', `Preview is ${current.status}/${current.reason ?? '-'}; Console approval is allowed for UNAPPROVED previews and for previews that changed after approval`))
         }
         const digestPattern = /^[0-9a-f]{64}$/
         if (!digestPattern.test(input.sourceDigest ?? '') || !digestPattern.test(input.previewDigest ?? '')) {
@@ -501,7 +574,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         const controlProject = catalog.project(String(input?.project ?? ''))
         const manifest = controlProject ? readLiveConfig(controlProject.root) : null
         const target = manifest ? parseLiveBaseTarget(manifest.target) : null
-        if (!target) return json(response, 404, errorBody('LIVE_TARGET_NOT_FOUND', 'Project has no valid live-delta target'))
+        if (!target) return json(response, 404, errorBody('LIVE_TARGET_NOT_FOUND', 'Project has no valid dev server target'))
         if (action === 'stop') {
           const managed = liveBaseProcesses.get(target.port)
           if (!managed?.child) return json(response, 409, errorBody('NOT_CONSOLE_MANAGED', 'Target process was not started by this console'))
@@ -525,7 +598,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         const entry = readLaunchEntry(String(input?.entry ?? ''))
         if (!entry) return json(response, 404, errorBody('LAUNCH_ENTRY_NOT_FOUND', 'launch.json entry was not found'))
         if (String(entry.port) !== String(target.port)) {
-          return json(response, 403, errorBody('ENTRY_PORT_MISMATCH', 'launch.json entry port does not match the project live-delta target'))
+          return json(response, 403, errorBody('ENTRY_PORT_MISMATCH', 'launch.json entry port does not match the project dev server target'))
         }
         if (liveBaseProcesses.has(target.port)) return json(response, 409, errorBody('ALREADY_MANAGED', 'A console-managed process already exists for this port'))
         // in-flight 락 — spawn 확정(await) 사이의 동시 시작 요청이 이중 스폰으로
@@ -593,21 +666,16 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
     }
     if (url.pathname === '/api/codex/status') return json(response, 200, codexRunManager.connection({refresh: url.searchParams.get('refresh') === '1'}))
     if (url.pathname === '/api/live-base/health') {
-      // 구성된 loopback 대상만 프로브한다(임의 URL 프로브 없음). 대상은 프로젝트의
-      // delta manifest 또는 --live-base 플래그에서만 나온다.
+      // 구성된 loopback 대상만 프로브한다(임의 URL 프로브 없음). 대상 정본은
+      // 프로젝트의 `preview/live.json`이며, launch.json 포트 allowlist가 다시 좁힌다.
       const healthProjectId = url.searchParams.get('project')
       let target = null
-      let identityManifest = null
       if (healthProjectId) {
         const healthProject = catalog.project(healthProjectId)
         const manifest = healthProject ? readLiveConfig(healthProject.root) : null
         if (manifest?.error) return json(response, 200, {configured: false, error: manifest.error}) // 깨진 live.json — 침묵 강등 대신 명시 보고
         target = manifest ? parseLiveBaseTarget(manifest.target) : null
         if (target && !launchAllowedPorts().has(target.port)) target = null
-        identityManifest = manifest
-      } else if (liveBase) {
-        target = liveBase.target
-        identityManifest = liveBase.root ? readLiveConfig(liveBase.root) : null
       }
       if (!target) return json(response, 200, {configured: false})
       let startHints = []
@@ -630,31 +698,18 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         }
       } catch { /* launch.json 없음/파싱 실패 — 힌트 생략 */ }
       const managed = liveBaseProcesses.get(target.port)
-      const expectedIdentity = parseLiveIdentity(identityManifest?.identity)
       ;(async () => {
+        // 응답이 오면(상태코드 무관) healthy다. **신원 대조는 하지 않는다**(2026-08-28) —
+        // `identity.titleIncludes` 대조는 프록시가 승인 표면을 얹을 때 "지금 덮고 있는 앱이
+        // 맞는가"를 증명하려던 기제였다. 승인이 프리뷰로 옮겨간 뒤에는 대조할 승인이 없고,
+        // 라이브는 "띄우고 본다"이므로 운영자가 열어보면 무엇이 떠 있는지 안다.
         let healthy = false
-        // 응답이 오면(상태코드 무관) healthy — 그 위에 신원 판정을 얹는다: 선언이 있으면
-        // HTML <title> 대조(제목 미검출·비-HTML은 fail-closed mismatch), 없으면 undeclared로
-        // 정직 보고. 무응답이면 신원 판정 자체가 불가하므로 null.
-        let identity = expectedIdentity === null ? {state: 'undeclared'} : expectedIdentity.error ? {state: 'invalid'} : null
         try {
-          const upstream = await fetch(target.origin, {signal: AbortSignal.timeout(1500), redirect: 'manual'})
+          await fetch(target.origin, {signal: AbortSignal.timeout(1500), redirect: 'manual'})
           healthy = true
-          if (expectedIdentity && !expectedIdentity.error) {
-            let actualTitle = null
-            try {
-              if ((upstream.headers.get('content-type') ?? '').includes('text/html')) actualTitle = extractHtmlTitle(await upstream.text())
-            } catch { /* 본문 판독 실패 — 제목 미검출로 두어 fail-closed */ }
-            identity = {
-              state: actualTitle !== null && actualTitle.includes(expectedIdentity.titleIncludes) ? 'verified' : 'mismatch',
-              expected: expectedIdentity.titleIncludes,
-              actualTitle,
-            }
-          }
         } catch { /* 대상 무응답 */ }
-        if (!healthy) identity = null
         json(response, 200, {
-          configured: true, target: target.origin, healthy, identity, startHints,
+          configured: true, target: target.origin, healthy, startHints,
           managed: managed?.child ? {entry: managed.entry, startedAt: managed.startedAt} : null,
           checkedAt: new Date().toISOString(),
         })
@@ -680,28 +735,42 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       const detail = catalog.detail(detailProjectId)
       if (!detail) return json(response, 404, errorBody('PROJECT_NOT_FOUND', 'Project was not found'))
       const project = catalog.project(detailProjectId)
-      detail.codexRuns = codexRunManager.list(project.root)
-      detail.livePreview = null
-      try {
-        const proxy = await ensureLiveProxy(project, {allowStart: request.headers['x-web-harness-ui'] === '1'})
-        if (proxy?.port) {
-          const declaredIdentity = parseLiveIdentity(readLiveConfig(project.root)?.identity)
-          detail.livePreview = {
-            url: `http://127.0.0.1:${proxy.port}`,
-            target: proxy.target.origin,
-            deltaPresent: existsSync(join(project.root, '_workspace', '02_design', 'preview', 'delta', 'bootstrap.mjs')),
-            // 신원 선언 상태를 UI에 노출한다 — 미선언 킷은 차단하지 않되(하위호환)
-            // "target 포트의 앱 신원 미검증" 경고의 데이터 소스가 된다.
-            identity: declaredIdentity === null
-              ? {state: 'undeclared'}
-              : declaredIdentity.error
-                ? {state: 'invalid'}
-                : {state: 'declared', titleIncludes: declaredIdentity.titleIncludes},
-          }
-        } else if (proxy?.error) {
-          detail.livePreviewError = proxy.error
+      // 대기 중인 candidate의 기준이 아직 유효한지 미리 알려준다. 승격 시점에야 409로
+      // 알게 되면 사용자는 승인 버튼 앞에서 막힌다(CANDIDATE_BASE_STALE).
+      //
+      // 영향 검토도 같다: apply 시점에야 CODEX_IMPACT_STALE로 알게 되는데, 그때 화면이
+      // 안내하는 '영향 검토 다시 실행'은 REVISION_REQUESTED 카드에 없어서 길이 끊긴다.
+      // 요청마다 현재 contextDigest를 한 번 계산해 저장분과 대조한다.
+      // 트리 스냅샷은 요청당 1회만 뜬다. run마다 뜨면 candidate가 쌓일수록 상호작용
+      // GET 비용이 선형으로 늘어난다(harness-change-reviewer MEDIUM).
+      let treeDigest
+      const currentTreeDigest = () => {
+        if (treeDigest === undefined) treeDigest = snapshotProjectDigest(project.root)
+        return treeDigest
+      }
+      const currentContextDigest = new Map()
+      const contextDigestFor = changeRequestId => {
+        if (!currentContextDigest.has(changeRequestId)) {
+          const target = project.changeRequests.find(candidate => candidate.id === changeRequestId)
+          let digest = null
+          try { digest = target ? buildImpactContext(project, target).contextDigest : null } catch { digest = null }
+          currentContextDigest.set(changeRequestId, digest)
         }
-      } catch { /* 프록시 준비 실패 시 livePreview 미노출 */ }
+        return currentContextDigest.get(changeRequestId)
+      }
+      detail.codexRuns = codexRunManager.list(project.root).map(run => {
+        if (run.phase === 'apply' && run.candidate) {
+          return {...run, candidate: {...run.candidate, baseState: inspectCandidateBase(project.root, run.runId, {currentDigest: currentTreeDigest()})}}
+        }
+        if (run.phase === 'impact' && run.impactContext?.contextDigest) {
+          const current = contextDigestFor(run.changeRequestId)
+          // 계산하지 못하면 판정하지 않는다(null) — 없는 상태를 지어내지 않는다.
+          const stale = current === null ? null : current !== run.impactContext.contextDigest
+          return {...run, impactContext: {...run.impactContext, stale}}
+        }
+        return run
+      })
+
       return json(response, 200, detail)
     }
     if (url.pathname.startsWith('/api/')) return json(response, 404, errorBody('ENDPOINT_NOT_FOUND', 'Endpoint was not found'))
@@ -780,35 +849,11 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
     return streamFile(request, response, file, {'x-web-harness-preview-status': project.preview.status})
   })
 
-  const livePreviewServer = liveBase
-    ? createLiveBasePreviewServer({
-      target: liveBase.target,
-      deltaRoot: join(liveBase.root, '_workspace', '02_design', 'preview', 'delta'),
-      streamDeltaFile: streamFile,
-      readIdentity: () => parseLiveIdentity(readLiveConfig(liveBase.root)?.identity),
-    })
-    : null
-  let boundLivePreviewPort = liveBase?.port ?? null
 
-  // live-base 동적 구성(후속 작업 7-③): delta manifest의 target(loopback 한정)으로
-  // 프로젝트별 프록시를 지연 생성한다 — 플래그 없이 plain 콘솔 하나로 통합.
-  // --live-base 플래그는 해당 프로젝트의 포트 고정 수동 오버라이드로 유지된다.
-  const liveProxies = new Map() // realpath(project.root) → {port, target, server} | {error} | {promise}
-  const readDeltaManifest = projectRoot => {
-    try {
-      const manifest = JSON.parse(readFileSync(join(projectRoot, '_workspace', '02_design', 'preview', 'manifest.json'), 'utf8'))
-      return manifest?.mode === 'live-delta' ? manifest : null
-    } catch {
-      return null
-    }
-  }
-  // 라이브 설정과 디자인 프리뷰의 분리(2026-08-20, search-portal 파일럿 실측): 두 관심사는
-  // 직교한다 — 디자인 프리뷰는 Phase 2 승인 자산("무엇을 만들기로 했나"), 라이브는 운영
-  // 뷰("지금 무엇이 돌고 있나")다. 종전에는 preview/manifest.json의 mode 필드 하나를
-  // 공유해 상호 배타였고, 승인 프리뷰가 있는 그린필드는 라이브 뷰를 켤 수 없었다.
-  // 정본은 이제 별도 파일 preview/live.json({target, identity?})이며, 레거시
-  // manifest(mode:'live-delta')는 브라운필드 하위 호환으로 계속 읽는다 — 두 파일이
-  // 모두 있으면 live.json이 이긴다.
+
+  // 라이브 설정은 디자인 프리뷰와 직교한다 — 프리뷰는 승인 자산("무엇을 만들기로 했나"),
+  // 라이브는 운영 뷰("지금 무엇이 돌고 있나")다. 정본은 `preview/live.json`({target})
+  // 하나이며, 델타 킷 레거시 manifest 폴백은 라이브 델타 제거와 함께 걷었다(2026-08-28).
   const readLiveConfig = projectRoot => {
     // 부재(ENOENT)와 형식 오류를 구분한다(적대 검토 MEDIUM 반영, 2026-08-20): 파일이
     // 존재하는데 파싱이 깨지면 레거시 manifest로 조용히 폴백하지 않는다 — 마이그레이션
@@ -818,7 +863,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
     try {
       raw = readFileSync(join(projectRoot, '_workspace', '02_design', 'preview', 'live.json'), 'utf8')
     } catch {
-      raw = null // 부재 — 레거시 폴백 허용
+      raw = null // 부재 — 대상 미설정으로 본다(델타 킷 레거시 폴백은 2026-08-28 제거)
     }
     if (raw !== null) {
       try {
@@ -828,7 +873,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
         return {error: 'INVALID_LIVE_CONFIG'}
       }
     }
-    return readDeltaManifest(projectRoot)
+    return null
   }
   // 승인 게이트 dev server 시작/중지(후속 작업 7-②): 명령은 launch.json 항목에서만
   // 나오고(임의 명령 불가), 항목 포트가 프로젝트 manifest target 포트와 일치해야 하며,
@@ -853,60 +898,13 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       return new Set()
     }
   }
-  const ensureLiveProxy = (project, {allowStart = false} = {}) => {
-    let realRoot
-    try {
-      realRoot = realpathSync(project.root)
-    } catch {
-      return null
-    }
-    // pinned --live-base는 운영자의 명시 의도다 — 프로젝트 측 live.json/manifest 존재를
-    // 요구하지 않는다(분리 이전에는 manifest 부재가 pinned 경로까지 막았음, 실측 결함).
-    if (liveBase && boundLivePreviewPort) {
-      try {
-        if (realpathSync(liveBase.root) === realRoot) return {port: boundLivePreviewPort, target: liveBase.target}
-      } catch { /* 플래그 루트 해석 실패 — 동적 경로로 진행 */ }
-    }
-    const manifest = readLiveConfig(project.root)
-    if (!manifest) return null
-    if (manifest.error) return {error: manifest.error} // 깨진 live.json — loud fail(레거시 대체 금지)
-    const existing = liveProxies.get(realRoot)
-    if (existing) return existing.promise ?? existing
-    // 실패는 캐시하지 않는다 — manifest/launch.json을 고치면 재시작 없이 복구된다.
-    const target = parseLiveBaseTarget(manifest.target)
-    if (!target) return {error: 'INVALID_LIVE_TARGET'}
-    if (!launchAllowedPorts().has(target.port)) return {error: 'LIVE_TARGET_NOT_IN_LAUNCH'}
-    // 신원 선언의 형식 오류는 미선언으로 강등하지 않고 loud 실패 — 오타가 검사를 조용히
-    // 끄면 안 된다. 대조 자체는 프록시가 HTML 응답마다 수행한다(생성 시 1회가 아니라).
-    if (parseLiveIdentity(manifest.identity)?.error) return {error: 'INVALID_LIVE_IDENTITY'}
-    if (!allowStart) return null
-    const server = createLiveBasePreviewServer({
-      target,
-      deltaRoot: join(project.root, '_workspace', '02_design', 'preview', 'delta'),
-      streamDeltaFile: streamFile,
-      readIdentity: () => parseLiveIdentity(readLiveConfig(project.root)?.identity),
-    })
-    const promise = new Promise(resolveEntry => {
-      server.once('error', () => {
-        liveProxies.delete(realRoot)
-        resolveEntry({error: 'LIVE_PROXY_START_FAILED'})
-      })
-      server.listen(0, '127.0.0.1', () => {
-        const entry = {port: server.address().port, target, server}
-        liveProxies.set(realRoot, entry)
-        resolveEntry(entry)
-      })
-    })
-    liveProxies.set(realRoot, {promise})
-    return promise
-  }
 
   const listen = () => new Promise((resolveListen, reject) => {
-    const expected = livePreviewServer ? 3 : 2
+    const expected = 2
     let ready = 0
     const done = () => {
       ready += 1
-      if (ready === expected) resolveListen({consolePort: boundConsolePort, previewPort: boundPreviewPort, livePreviewPort: boundLivePreviewPort})
+      if (ready === expected) resolveListen({consolePort: boundConsolePort, previewPort: boundPreviewPort})
     }
     consoleServer.once('error', reject)
     previewServer.once('error', reject)
@@ -918,13 +916,7 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
       boundConsolePort = consoleServer.address().port
       done()
     })
-    if (livePreviewServer) {
-      livePreviewServer.once('error', reject)
-      livePreviewServer.listen(liveBase.port, '127.0.0.1', () => {
-        boundLivePreviewPort = livePreviewServer.address().port
-        done()
-      })
-    }
+
   })
 
   const close = async () => {
@@ -941,12 +933,11 @@ export const createConsoleServers = ({repositoryRoot, port = 4310, previewPort =
     await Promise.all([
       new Promise(resolveClose => consoleServer.close(() => resolveClose())),
       new Promise(resolveClose => previewServer.close(() => resolveClose())),
-      livePreviewServer ? new Promise(resolveClose => livePreviewServer.close(() => resolveClose())) : Promise.resolve(),
-      ...[...liveProxies.values()].filter(entry => entry.server).map(entry => new Promise(resolveClose => entry.server.close(() => resolveClose()))),
+
     ])
   }
 
-  return {catalog, codexRunManager, consoleServer, previewServer, livePreviewServer, listen, close}
+  return {catalog, codexRunManager, consoleServer, previewServer, listen, close}
 }
 
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
@@ -960,15 +951,8 @@ if (isMain) {
       previewPort: options.previewPort,
       executorKind: options.executor,
       executorModels: {impact: options.impactModel, apply: options.applyModel},
-      liveBase: options.liveBase
-        ? {target: parseLiveBaseTarget(options.liveBase), root: options.liveBaseRoot, port: options.liveBasePort}
-        : null,
     })
     const addresses = await servers.listen()
-    if (addresses.livePreviewPort) {
-      process.stdout.write(`Live-base preview (pinned): http://127.0.0.1:${addresses.livePreviewPort} → ${options.liveBase} (delta: ${options.liveBaseRoot})\n`)
-    }
-    process.stdout.write('Live-base delta proxies: delta manifest의 target으로 프로젝트별 자동 구성 (임시 포트)\n')
     process.stdout.write(`Web Harness Console: http://127.0.0.1:${addresses.consolePort}\n`)
     process.stdout.write(`Isolated previews: http://127.0.0.1:${addresses.previewPort}/<project-id>/\n`)
     const connection = servers.codexRunManager.connection()
