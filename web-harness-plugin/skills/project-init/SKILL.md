@@ -102,4 +102,4 @@ When the user invokes `/project-init` alone, start with:
 - `.env.dev`, `.env.staging`, `.env.production`은 공개 `VITE_*` 값만 포함할 때 커밋 가능하다. `.env.local`, `.env.*.local`은 반드시 `.gitignore`에 추가한다.
 - GitHub Actions workflow는 self-hosted runner가 필요한 경우에만 그 label로 생성한다. 일반 공개 환경이면 `ubuntu-latest`로 대체한다.
 _(저장소 모드 전용 단계 — 플러그인 배포판에서는 생략한다.)_
-- 생성 프로젝트의 test scaffold가 준비된 뒤 사용자 확인을 받고 `web-harness-script run-quality-gates --all --allow-host-execution`으로 로컬 진단 receipt를 만든다. 최종 release manifest v3는 격리 CI에서 동일 cohort를 재실행하고 신뢰 attester가 서명한 뒤에만 검증한다. missing script를 임의 fallback command로 대체하지 않는다.
+- 생성 프로젝트의 test scaffold가 준비된 뒤 `web-harness-script run-quality-gates --all --allow-host-execution`으로 로컬 진단 receipt를 만든다. 이 플래그가 **프로젝트당 한 번의 승인**이며 이후 게이트는 다시 묻지 않는다. 최종 release manifest v3는 격리 CI에서 동일 cohort를 재실행하고 신뢰 attester가 서명한 뒤에만 검증한다. missing script를 임의 fallback command로 대체하지 않는다.
