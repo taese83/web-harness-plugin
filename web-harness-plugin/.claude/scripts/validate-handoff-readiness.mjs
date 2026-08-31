@@ -19,6 +19,7 @@
 // 사용법:
 //   node .claude/scripts/validate-handoff-readiness.mjs --project <root> --to design|development [--json]
 // 종료 코드: 0 = 인계 가능, 1 = 미해결, 2 = 사용법 오류.
+import {ledgerState, parseLedger} from './ticket/ledger.mjs'
 import {existsSync, readFileSync, readdirSync, statSync} from 'node:fs'
 import {join, resolve} from 'node:path'
 import {pathToFileURL} from 'node:url'
@@ -62,17 +63,33 @@ export function checkPlanDeclarations(units) {
 }
 
 // 순서를 **산문으로만** 말하고 있는가. 선언이 있는데 산문도 있는 것은 정상(설명)이고,
+
+/** 계획 산문 — flat `feature-plan.md`와 sharded `feature-plan/` 양형을 모두 읽는다. */
+export function planSources(root) {
+  const out = []
+  const flat = join(root, '_workspace/01_plan/feature-plan.md')
+  if (existsSync(flat) && statSync(flat).isFile()) out.push(readFileSync(flat, 'utf8'))
+  const dir = join(root, '_workspace/01_plan/feature-plan')
+  if (existsSync(dir) && statSync(dir).isDirectory()) {
+    for (const name of readdirSync(dir).filter(n => n.endsWith('.md'))) {
+      out.push(readFileSync(join(dir, name), 'utf8'))
+    }
+  }
+  return out
+}
+
 // 선언이 없는데 산문만 있는 것이 구멍이다 — 오늘 실제로 그랬다.
 const ORDERING_PROSE = /(병렬|선행|먼저|이후|순차|→)/
 export function checkProseOnlyOrdering(root, units) {
   if (!units || units.length === 0) return skip('prose-ordering', '단위를 읽지 못해 대조할 수 없다')
   const declared = units.filter(u => Array.isArray(u.dependsOn) && u.dependsOn.length > 0).length
   if (declared > 0) return ok('prose-ordering', `의존 엣지가 ${declared}건 선언돼 있다`)
-  const dir = join(root, '_workspace/01_plan/feature-plan')
-  const sources = existsSync(dir) && statSync(dir).isDirectory()
-    ? readdirSync(dir).filter(n => n.endsWith('.md')).map(n => readFileSync(join(dir, n), 'utf8'))
-    : []
+  // 계획은 flat(`feature-plan.md`)일 수도 sharded(`feature-plan/`)일 수도 있다 — 한쪽만
+  // 읽으면 다른 쪽에서 "산문이 없다"는 **거짓 PASS**가 난다(SKIP도 아니다). 이 저장소가
+  // 계획 로더에서 이미 겪은 flat/sharded 비대칭 클래스의 잔존이었다(2026-08-30 리뷰).
+  const sources = planSources(root)
   const proseHit = sources.some(text => ORDERING_PROSE.test(text) && /FEAT-\d{3,}/.test(text))
+  if (sources.length === 0) return skip('prose-ordering', '계획 문서를 찾지 못해 대조할 수 없다')
   if (!proseHit) return ok('prose-ordering', '순서를 주장하는 산문이 없다 — 정말 전부 독립일 수 있다')
   return hole('prose-ordering', '기획 산문이 순서를 말하는데 선언된 의존 엣지가 0건이다',
     '산문의 순서를 dependsOn으로 옮긴다 — 기계가 못 읽으면 보드가 전부 착수 가능으로 보이고, 개발이 그 위에서 시작한다')
@@ -194,8 +211,179 @@ export function checkPathsAgainstSpec(units, spec) {
   }
   if (problems.length === 0) return ok('paths-attribution', '선언된 경로가 스팩 귀속과 일치한다')
   return hole('paths-attribution', problems.slice(0, 6).join(' · ') + (problems.length > 6 ? ` … 외 ${problems.length - 6}건` : ''),
-    '스팩 moduleBoundaries의 rationale이 FEAT를 명시한 경계만 그 FEAT의 paths로 적는다 — 공유 정본에 단일 소유자를 지어내면 거짓 충돌이 생겨 착수가 막힌다')
+    '그 FEAT가 그 경계를 정말 써야 하면 **스팩을 고친다** — moduleBoundaries의 rationale에 그 FEAT를 더한다. 쓰지 않아도 되면 paths에서 뺀다. **`none`으로 비우는 것은 답이 아니다** — 자기 TC를 검증할 수 없어져 paths-sufficiency가 막는다(둘은 같은 결함의 양면이다)')
 }
+
+// ── (2) 선언된 경로가 자기 TC를 검증하기에 충분한가 ─────────────────────────
+// **개발 중에 문서를 고치게 되면 그것은 인계 실패다.** 그런데 귀속 대조(위)는 공유 경계를
+// 선언하면 지적하므로, 저자가 게이트를 통과하는 **가장 쉬운 길이 `paths=none`**이 된다.
+// 그리고 `paths=none`은 지금까지 아무도 보지 않았다 — TC가 5개인 FEAT가 소유 경로 0개로
+// 통과했고, 그 결함은 **개발자가 픽업해서 ALLOWED_PATHS가 비어 있는 것을 발견할 때** 처음
+// 드러났다(2026-08-30 실측, track FEAT-010). 그 시점의 해법은 계획 수정뿐이고, 그것이
+// 정확히 "개발 중 문서 변경"이다.
+//
+// **판정**: TC를 가진 FEAT는 소유 경로를 하나 이상 선언해야 한다. 아무것도 소유하지 않는
+// 단위는 자기 수용 기준을 검증할 수 없다.
+//
+// 공유 표면이라 쓸 경계가 없다면 그것은 **스팩의 결함**이다 — moduleBoundaries의 rationale이
+// 그 FEAT를 명시하도록 고쳐야 하며, 계획에서 `none`으로 회피할 문제가 아니다.
+export function checkPathsSufficient(units) {
+  if (!units || units.length === 0) return skip('paths-sufficiency', '단위를 읽지 못해 대조할 수 없다')
+  const empty = units
+    .filter(unit => (unit.testCaseIds?.length ?? 0) > 0)
+    .filter(unit => Array.isArray(unit.paths) && unit.paths.length === 0)
+    .map(unit => unit.featureId)
+    .sort()
+  if (empty.length === 0) return ok('paths-sufficiency', 'TC를 가진 단위가 전부 소유 경로를 선언했다')
+  return hole('paths-sufficiency', `TC가 있는데 소유 경로가 없다: ${empty.join(', ')}`,
+    '그 FEAT가 실제로 쓸 경로를 선언한다 — 아무것도 소유하지 않으면 자기 TC를 검증할 수 없고, '
+    + '픽업 시점에 ALLOWED_PATHS가 비어 개발이 계획을 고치게 된다. 공유 표면이라 쓸 경계가 '
+    + '없다면 스팩 moduleBoundaries의 rationale이 그 FEAT를 명시하도록 고친다 — 계획에서 '
+    + '`none`으로 회피할 문제가 아니다')
+}
+
+/** 디렉터리 아래 확장자 일치 파일을 전부 이어 읽는다(재귀). 읽기 실패는 빈 문자열이다. */
+export function readTree(dir, extensions = ['.md']) {
+  let out = ''
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) return out
+  for (const entry of readdirSync(dir, {withFileTypes: true})) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) out += readTree(path, extensions)
+    else if (extensions.some(ext => entry.name.endsWith(ext))) {
+      try { out += `\n${readFileSync(path, 'utf8')}` } catch { /* 읽기 실패는 미인용으로 둔다 */ }
+    }
+  }
+  return out
+}
+const readTreeMd = dir => readTree(dir, ['.md'])
+
+/** 결정 로그 — 계약상 flat `decision-log.md`이고 분할 프로젝트는 디렉터리다. 둘 다 읽는다. */
+export function readDecisionLog(root) {
+  let out = ''
+  const flat = join(root, '_workspace/01_plan/decision-log.md')
+  if (existsSync(flat) && statSync(flat).isFile()) out += readFileSync(flat, 'utf8')
+  out += readTreeMd(join(root, '_workspace/01_plan/decision-log'))
+  return out
+}
+
+/** 구현이 읽는 정본 — 계획과 설계. **프리뷰는 제외한다**(Phase 3의 구현 입력이 아니다). */
+export function readCanon(root) {
+  let out = planSources(root).join('\n')
+  const designDir = join(root, '_workspace/02_design')
+  if (!existsSync(designDir) || !statSync(designDir).isDirectory()) return out
+  for (const entry of readdirSync(designDir, {withFileTypes: true})) {
+    if (entry.name === 'preview') continue
+    const path = join(designDir, entry.name)
+    if (entry.isDirectory()) out += readTreeMd(path)
+    else if (entry.name.endsWith('.md')) {
+      try { out += `\n${readFileSync(path, 'utf8')}` } catch { /* 무시 */ }
+    }
+  }
+  return out
+}
+
+
+// ── (5) 논의가 산출물에 도달했는가 · 요구가 계획에 도달했는가 ────────────────
+// 앞의 `upstream-decisions`는 **프리뷰가 인용한** 결정만 본다. 그러나 프리뷰를 거치지 않고
+// 결정 로그에만 남은 조정도 있고, 요구가 계획에 매핑되지 않은 채 남기도 한다.
+//
+// 2026-08-30 실측(track): 결정 57건 중 **25건**을 정본이 한 번도 인용하지 않았고, 요구 28건 중
+// **13건**을 계획이 한 번도 언급하지 않았다. 그중 상당수는 내용이 다른 낱말로 반영돼 있으나,
+// ID 흔적이 없으면 "이 티켓이 어느 요구를 닫는가"에 답할 수 없다.
+//
+// **래칫으로 잰다.** 이미 쌓인 것을 한 번에 메우라고 하면 게이트가 통과 불가가 되어 우회를
+// 부른다 — 현재를 baseline으로 고정하고 **새로 새는 것만** 막는다(이 저장소의 always-read
+// 바이트·배선 커버리지와 같은 방식). baseline 갱신은 의식적 행위다.
+const COVERAGE_BASELINE = '_workspace/01_plan/coverage-baseline.json'
+
+export function readCoverageBaseline(root) {
+  const path = join(root, COVERAGE_BASELINE)
+  if (!existsSync(path)) return {decisions: [], requirements: []}
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'))
+    return {
+      decisions: Array.isArray(parsed?.decisions) ? parsed.decisions : [],
+      requirements: Array.isArray(parsed?.requirements) ? parsed.requirements : [],
+    }
+  } catch {
+    return {decisions: [], requirements: []} // 깨진 baseline은 면제 0 — fail-closed
+  }
+}
+
+/** 정본이 한 번도 인용하지 않은 결정(대체분은 후속이 도달했으면 제외). */
+export function strandedDecisions(root) {
+  const log = readDecisionLog(root)
+  const {ids: declared, prefixes} = declaredDecisions(log)
+  if (prefixes.size === 0) return null // 로그가 없거나 표제 규약 밖 — 판정 불가
+  const canon = readCanon(root)
+  const reached = new Set(canon.match(idPattern(prefixes)) ?? [])
+  const supersession = supersessionMap(log)
+  return [...declared]
+    .filter(id => !reached.has(id) && !supersededAndReached(id, supersession, reached))
+    .sort()
+}
+
+export function checkDecisionsLanded(root) {
+  const stranded = strandedDecisions(root)
+  if (stranded === null) return skip('decisions-landed', '결정 로그가 없거나 표제 규약 밖이다')
+  const known = new Set(readCoverageBaseline(root).decisions)
+  const fresh = stranded.filter(id => !known.has(id))
+  if (fresh.length === 0) {
+    const carried = stranded.length > 0 ? ` (baseline에 등록된 미도달 ${stranded.length}건은 그대로 남아 있다)` : ''
+    return ok('decisions-landed', `정본이 인용하지 않은 결정이 새로 늘지 않았다${carried}`)
+  }
+  return hole('decisions-landed', `정본이 인용하지 않는 새 결정 ${fresh.length}건: ${fresh.slice(0, 8).join(', ')}`,
+    '그 결정을 FEAT 스펙·설계 정본에서 ID로 인용한다 — 내용만 옮기면 "이 티켓이 어느 결정을 구현하는가"에 답할 수 없다. '
+    + `과정 기록이라 산출물이 없으면 ${COVERAGE_BASELINE}에 등록한다(의식적 행위다)`)
+}
+
+/** 요구 문서가 선언했는데 계획이 한 번도 언급하지 않은 요구. */
+export function uncoveredRequirements(root) {
+  const dir = join(root, '_workspace/01_plan/requirements')
+  const flat = join(root, '_workspace/01_plan/requirements.md')
+  let text = ''
+  if (existsSync(flat) && statSync(flat).isFile()) text += readFileSync(flat, 'utf8')
+  if (existsSync(dir) && statSync(dir).isDirectory()) text += readTreeMd(dir)
+  if (text === '') return null
+  const ids = [...new Set(text.match(/\bREQ-[A-Z]{1,4}-\d+\b/g) ?? [])]
+  if (ids.length === 0) return null
+  const plan = planSources(root).join('\n')
+  const mentioned = new Set(plan.match(/\bREQ-[A-Z]{1,4}-\d+\b/g) ?? [])
+  return ids.filter(id => !mentioned.has(id)).sort()
+}
+
+export function checkRequirementsCovered(root) {
+  const uncovered = uncoveredRequirements(root)
+  if (uncovered === null) return skip('requirements-covered', '요구 문서를 찾지 못했거나 ID가 없다')
+  const known = new Set(readCoverageBaseline(root).requirements)
+  const fresh = uncovered.filter(id => !known.has(id))
+  if (fresh.length === 0) {
+    const carried = uncovered.length > 0 ? ` (baseline에 등록된 미매핑 ${uncovered.length}건은 그대로 남아 있다)` : ''
+    return ok('requirements-covered', `계획이 다루지 않는 요구가 새로 늘지 않았다${carried}`)
+  }
+  return hole('requirements-covered', `계획이 언급하지 않는 새 요구 ${fresh.length}건: ${fresh.slice(0, 8).join(', ')}`,
+    '그 요구를 담당할 FEAT의 명세나 traceability 표에 ID로 적는다 — 담당이 없으면 티켓으로도 나가지 않고, '
+    + `어느 티켓이 그것을 닫는지 아무도 모른다. 의식적으로 범위 밖이면 ${COVERAGE_BASELINE}에 등록한다`)
+}
+
+/** 계획에 있는데 티켓이 발행되지 않은 FEAT. 원장이 있을 때만 잰다. */
+export function checkTicketsCoverPlan(root, units) {
+  if (!units || units.length === 0) return skip('tickets-cover-plan', '단위를 읽지 못해 대조할 수 없다')
+  const ledgerPath = join(root, '_workspace/03_dev/identity-ledger.jsonl')
+  if (!existsSync(ledgerPath)) return skip('tickets-cover-plan', '아직 티켓이 발행되지 않았다')
+  let issued
+  try {
+    issued = new Set(ledgerState(parseLedger(readFileSync(ledgerPath, 'utf8'))).keys())
+  } catch {
+    return skip('tickets-cover-plan', '원장을 읽지 못했다')
+  }
+  if (issued.size === 0) return skip('tickets-cover-plan', '원장에 유효한 티켓 기록이 없다')
+  const missing = units.map(unit => unit.featureId).filter(id => !issued.has(id)).sort()
+  if (missing.length === 0) return ok('tickets-cover-plan', `계획의 ${units.length}개 단위가 전부 티켓으로 발행됐다`)
+  return hole('tickets-cover-plan', `티켓이 없는 계획 단위 ${missing.length}건: ${missing.join(', ')}`,
+    'claim으로 발행한다 — 계획에 있는데 티켓이 없으면 보드에 안 보이고, 아무도 집지 않은 채 릴리스로 간다')
+}
+
 
 // ── (3) 진행 중 픽업 보호 ───────────────────────────────────────────────────
 // 계획을 고치면 그것을 읽고 작업 중인 개발자 밑에서 순서가 바뀐다. 오늘 내가 그렇게 했다 —
@@ -281,10 +469,7 @@ export function extractProseEdges(text) {
 
 export function checkProseEdgesDeclared(root, units) {
   if (!units || units.length === 0) return skip('prose-edges', '단위를 읽지 못해 대조할 수 없다')
-  const dir = join(root, '_workspace/01_plan/feature-plan')
-  const text = existsSync(dir) && statSync(dir).isDirectory()
-    ? readdirSync(dir).filter(n => n.endsWith('.md')).sort().map(n => readFileSync(join(dir, n), 'utf8')).join('\n')
-    : (existsSync(join(root, '_workspace/01_plan/feature-plan.md')) ? readFileSync(join(root, '_workspace/01_plan/feature-plan.md'), 'utf8') : '')
+  const text = planSources(root).join('\n')
   const edges = extractProseEdges(text)
   if (edges.length === 0) return skip('prose-edges', '산문에서 의존 진술을 찾지 못했다 — 없거나 다른 표현이다')
   const declared = new Map(units.map(u => [u.featureId, new Set(u.dependsOn ?? [])]))
@@ -331,6 +516,138 @@ export function measureParallelism(units) {
   }
 }
 
+// ── 상류 조정이 개발에 도달하는가 ───────────────────────────────────────────
+// 기획·디자인·스팩·설계에서 조정한 결정(D-xxx)은 **결정 로그**에 남는다. 그런데 결정 로그는
+// 이력이지 구현 입력이 아니다 — 개발이 읽는 것은 FEAT 스펙과 `piece-geometry.md` 같은 정본
+// 문서다. 조정이 로그와 **프리뷰 코드에만** 남으면 개발은 그것을 못 본다.
+//
+// 2026-08-30 실측: 뱅크·레인 기하(D-033·034·035)가 FEAT-005 본문과 `preview/geom3d.js`에만
+// 있었고, 그것을 실제로 구현할 FEAT-008 본문은 "시각적으로 구분해 표현한다" 두 줄이었다 —
+// **티켓만 읽고 개발하면 3레인 순환도 12cm 면도 8cm 육교도 모른다.** Phase 3은 preview 코드를
+// 구현 입력으로 전달하는 것을 금지하므로, 그 경로로는 도달할 수도 없다.
+//
+// **판정**: 프리뷰 코드가 인용하는 결정 ID가 구현이 읽는 문서(FEAT 스펙·설계 정본)에도
+// 있는가. 없으면 그 조정은 개발에 도달하지 못한다.
+//
+// **한계(프록시)**: ID 인용의 존재만 본다 — 인용됐다고 그 수치가 옮겨졌다는 보장은 없다.
+// 반대로 ID 없이 내용만 옮긴 경우는 놓친다(과소 탐지, 정직한 방향).
+// **ID 체계를 하드코딩하지 않는다**(I3). 하네스 계약(`plan-history-contract.md`)의 결정 ID는
+// `PC-NNN`이고 track은 `D-NNN`을 쓴다 — 둘 중 하나를 박으면 다른 쪽에서 이 검사가 영구
+// 무의미해지거나 전건 오탐이 된다(2026-08-30 리뷰 BLOCK). 그래서 **로그가 스스로 선언한
+// 표제에서 접두사를 읽어** 그 체계로만 검색한다. 표제가 없으면 검색할 것이 없으므로 SKIP이다.
+const DECISION_HEADING = /^#{1,6}\s*([A-Z]{1,4})-(\d{3,})\b/gm
+
+/** 로그가 선언한 결정 ID와 접두사. 로그 밖에서는 이 집합으로만 검색한다. */
+export function declaredDecisions(logText) {
+  const ids = new Set()
+  const prefixes = new Set()
+  for (const [, prefix, number] of String(logText ?? '').matchAll(DECISION_HEADING)) {
+    ids.add(`${prefix}-${number}`)
+    prefixes.add(prefix)
+  }
+  return {ids, prefixes}
+}
+
+const idPattern = prefixes => new RegExp(String.raw`\b(?:${[...prefixes].join('|')})-\d{3,}\b`, 'g')
+
+// 결정 로그에서 **대체·정정·해소된** 결정 ID.
+//
+// 방향이 핵심이고, 방향 판정은 산문에서 신뢰할 수 없다. 첫 시도는 "주격 조사 `이/가` = 행위자"
+// 규칙이었는데 리뷰가 **피동문에서 정확히 뒤집히는** 반례를 냈다 — `D-024가 D-042로 대체됐다`
+// 에서 살아 있는 D-042를 대체된 것으로 등록한다. 제외는 stranded를 **줄이는** 방향으로만
+// 작동하므로 그 오판은 전부 fail-open이다.
+//
+// 그래서 범위를 **계약된 표제 형태 한 줄**로 좁혔다: `## <자기 ID> · 제목 — <다른 ID> 대체`.
+// 표제 밖 산문은 보지 않는다(과소 제외 = 더 많이 보고 = fail-closed). 피동(`로`·`에 의해`)과
+// 부정(`않`)이 섞인 표제는 방향을 단정할 수 없으므로 **제외하지 않는다**.
+const PASSIVE = /(으?로|에\s*의해)\s*$/
+
+/**
+ * 대체 관계를 **dead → successor** 맵으로 읽는다.
+ *
+ * 이전 판은 "대체됐으니 면제"로 끝냈는데, 면제의 논거는 *"후속이 정본에 있으면 그 조정은
+ * 도달한 것"*이다 — 그런데 후속이 정본에 도달했는지를 검사하지 않았다. 그러면 옛 결정도
+ * 후속도 정본에 없는, **이 검사가 잡으려던 바로 그 상황**이 PASS로 나온다(2026-08-30 리뷰
+ * HIGH). 면제하려면 그 논거를 기계가 확인해야 한다.
+ */
+export function supersessionMap(logText) {
+  const map = new Map()
+  const {prefixes} = declaredDecisions(logText)
+  if (prefixes.size === 0) return map
+  const ID = idPattern(prefixes)
+  for (const line of String(logText ?? '').split(/\r?\n/)) {
+    const heading = line.match(/^#{1,6}\s*([A-Z]{1,4}-\d{3,})\b/)?.[1]
+    if (heading === undefined) continue // 표제 줄만 본다
+    if (/않/.test(line)) continue // 부정문은 방향을 단정하지 않는다
+    let cursor = 0
+    for (const keyword of [...line.matchAll(/대체|정정|해소/g)]) {
+      // 키워드마다 **직전 키워드 이후**만 본다 — 한 줄에 진술이 둘이면 앞 진술의 행위자가
+      // 뒤 진술의 목적어로 새는 fail-open이 생긴다(리뷰 LOW).
+      const segment = line.slice(cursor, keyword.index)
+      cursor = keyword.index + keyword[0].length
+      for (const match of segment.matchAll(ID)) {
+        if (match[0] === heading) continue // 자기 자신은 대체하는 쪽이다
+        const after = segment.slice(match.index + match[0].length)
+        if (PASSIVE.test(after)) continue // `D-042로 대체` — 그쪽이 행위자다
+        if (!map.has(match[0])) map.set(match[0], new Set())
+        map.get(match[0]).add(heading)
+      }
+    }
+  }
+  return map
+}
+
+/** 대체된 결정 ID(방향만). 도달 판정에는 쓰지 않는다 — `supersessionMap`을 쓴다. */
+export function supersededDecisionIds(logText) {
+  return new Set(supersessionMap(logText).keys())
+}
+
+/** 후속(사슬 포함)이 정본에 도달했으면 면제한다. 순환 로그에서도 멈춘다. */
+export function supersededAndReached(id, map, reached, seen = new Set()) {
+  if (seen.has(id)) return false
+  seen.add(id)
+  for (const successor of map.get(id) ?? []) {
+    if (reached.has(successor)) return true
+    if (supersededAndReached(successor, map, reached, seen)) return true
+  }
+  return false
+}
+
+export function checkUpstreamDecisionsReachable(root) {
+  const previewDir = join(root, '_workspace/02_design/preview')
+  if (!existsSync(previewDir) || !statSync(previewDir).isDirectory()) {
+    return skip('upstream-decisions', '프리뷰가 없어 대조할 수 없다')
+  }
+  // 로그·정본 판독은 공용 reader를 쓴다 — 같은 파일 안에서 두 벌을 두면 한쪽만 고쳐진다.
+  const log = readDecisionLog(root)
+  const {ids: declared, prefixes} = declaredDecisions(log)
+  if (prefixes.size === 0) {
+    return skip('upstream-decisions', '결정 로그에 `## <ID>-<3자리 이상>` 표제가 없어 ID 체계를 알 수 없다')
+  }
+  const ID = idPattern(prefixes)
+  const inPreview = new Set(readTree(previewDir, ['.js', '.ts', '.css', '.html']).match(ID) ?? [])
+  if (inPreview.size === 0) return skip('upstream-decisions', '프리뷰가 인용하는 결정이 없다')
+  const canon = readCanon(root)
+  const reached = new Set(canon.match(ID) ?? [])
+  const supersession = supersessionMap(log)
+  // 로그에 **표제가 없는** ID는 존재하지 않는 결정을 가리키는 것이다 — 다른 종류의 결함이라
+  // 따로 보고한다(옮길 대상이 없으므로 "옮겨라"는 처방이 틀린다).
+  const dangling = [...inPreview].filter(id => !declared.has(id)).sort()
+  const stranded = [...inPreview]
+    .filter(id => declared.has(id) && !reached.has(id)
+      && !supersededAndReached(id, supersession, reached)).sort()
+  if (stranded.length === 0 && dangling.length === 0) {
+    return ok('upstream-decisions', `프리뷰가 인용한 결정 ${inPreview.size}건이 전부 구현 정본에 도달한다(대체분은 후속이 도달한 것만 면제)`)
+  }
+  const parts = []
+  if (stranded.length > 0) parts.push(`프리뷰에만 남은 결정 ${stranded.length}건: ${stranded.join(', ')}`)
+  if (dangling.length > 0) parts.push(`결정 로그에 없는 ID를 인용 ${dangling.length}건: ${dangling.join(', ')}`)
+  return hole('upstream-decisions', parts.join(' · '),
+    stranded.length > 0
+      ? '그 조정을 정본으로 옮기거나, 이미 옮겼다면 **정본에서 그 ID를 인용**한다 — Phase 3은 preview를 구현 입력으로 전달하지 않으므로 ID 없이는 개발이 근거를 되짚을 경로가 없다(이 축은 ID 인용을 보는 프록시다 — 내용이 다른 낱말로 도달했을 수 있으나, 그 경우에도 인용을 붙이는 것이 해소다)'
+      : '프리뷰·구현이 존재하지 않는 결정을 가리킨다 — 결정을 기록하거나 인용을 고친다')
+}
+
 export const HANDOFFS = ['design', 'development']
 
 export function analyzeHandoffReadiness(root, {to = 'development'} = {}) {
@@ -341,7 +658,7 @@ export function analyzeHandoffReadiness(root, {to = 'development'} = {}) {
   const planChecks = [checkPlanDeclarations(units), checkProseOnlyOrdering(root, units), checkProseEdgesDeclared(root, units),
     checkAcceptanceCoverage(units), checkActivePickupIntact(root, units)]
   if (to === 'design') {
-    const results = [...planChecks, checkDesignInputs(root)]
+    const results = [...planChecks, checkDesignInputs(root), checkUpstreamDecisionsReachable(root)]
     const holes = results.filter(r => r.state === 'HOLE')
     return {schemaVersion: 1, to, verdict: holes.length === 0 ? 'READY' : 'HOLES', results, holes, parallelism: measureParallelism(units)}
   }
@@ -349,6 +666,11 @@ export function analyzeHandoffReadiness(root, {to = 'development'} = {}) {
   const results = [
     ...planChecks,
     checkPathsAgainstSpec(units, spec),
+    checkPathsSufficient(units),
+    checkTicketsCoverPlan(root, units),
+    checkDecisionsLanded(root),
+    checkRequirementsCovered(root),
+    checkUpstreamDecisionsReachable(root),
     checkDesignDecisionsClosed(root),
     checkSpecReady(root),
     spec ? checkDecisionsApplied(root, spec) : skip('decisions', '스팩이 없어 대조할 수 없다'),

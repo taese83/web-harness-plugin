@@ -12,14 +12,15 @@ import {existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSyn
 import {basename, dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 import {computeBatchClaimPlan, formatBatchClaimPreview} from './batch-claim.mjs'
-import {computeClaimEligibility, claimEligibilityGuidance} from './claim-guard.mjs'
+import {computeClaimEligibility, claimEligibilityGuidance, checkClaimBranch} from './claim-guard.mjs'
 import {resolveOriginPlanSync, resolveCurrentBranch, resolveWorktreeStatus, refreshRemoteRefs} from './git-origin.mjs'
 import {evaluatePickupReadiness} from './sync-guard.mjs'
 import {claimFeature} from './runner.mjs'
 import {pickupWithOwnership} from './assign.mjs'
 import {isChangeScopeStale} from './pickup.mjs'
+import {evaluateTicketCompletion} from './completion.mjs'
 import {computeCloseLink, computePrLinkPlan} from './pr.mjs'
-import {renderCloseReference, parseBranchFromLabels} from './provider-github.mjs'
+import {renderCloseReference, parseBranchFromLabels, buildIssueFields} from './provider-github.mjs'
 import {createGithubProvider, resolveIssue, resolveViewerPermission, resolveMergedFeatures, runGh, assignArgs, issueSupersedeCloseArgs} from './provider-github-exec.mjs'
 import {readLedger, readLedgerState, appendLedgerRecord, appendClaimRecord, appendSupersedeRecord} from './ledger-writer.mjs'
 import {parseFeaturePlanUnits} from './plan-units.mjs'
@@ -127,6 +128,45 @@ export function loadUnits(root, flags) {
   return location.shards.flatMap(relative => parseFeaturePlanUnits(readFileSync(join(root, relative), 'utf8')))
 }
 
+// 계획 본문(flat·sharded)과 소스에서 인용된 TC ID — 완료 조건 판정의 입력.
+function loadPlanText(root, flags) {
+  // `--units`는 기계 입력이지만 **본문(body)을 담고 있다** — 유예 마커는 거기서 읽는다.
+  // 이전 판은 여기서 `''`를 반환해 units 경로가 **구조적으로 항상 차단**됐고, 그러자 회귀
+  // 테스트마다 `--accept-incomplete`가 뿌려졌다(2026-08-30 리뷰 HIGH). 게이트가 골든 경로를
+  // 막으면 고칠 것은 게이트가 아니라 모델링이다.
+  if (flags?.units) {
+    try {
+      const parsed = JSON.parse(readFileSync(flags.units, 'utf8'))
+      return Array.isArray(parsed) ? parsed.map(unit => String(unit?.body ?? '')).join('\n') : ''
+    } catch { return '' }
+  }
+  const flat = join(root, PLAN_RELATIVE)
+  if (existsSync(flat)) return readFileSync(flat, 'utf8')
+  const dir = join(root, PLAN_DIR_RELATIVE)
+  if (!existsSync(dir)) return ''
+  return readdirSync(dir).filter(name => name.endsWith('.md')).sort()
+    .map(name => readFileSync(join(dir, name), 'utf8')).join('\n')
+}
+
+// 소스 트리에서 인용된 TC ID. `_workspace`는 계획 문서라 제외한다 — 계획이 자기를 인용하는
+// 것을 "검증됐다"로 세면 판정이 공허해진다.
+function collectCitedTestCaseIds(root, dir = root, found = new Set(), depth = 0) {
+  if (depth > 8) return [...found]
+  let entries
+  try { entries = readdirSync(dir, {withFileTypes: true}) } catch { return [...found] }
+  for (const entry of entries) {
+    if (['node_modules', '.git', 'dist', '_workspace', 'coverage', 'playwright-report'].includes(entry.name)) continue
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) collectCitedTestCaseIds(root, path, found, depth + 1)
+    else if (/\.(ts|tsx|js|jsx|mjs|cjs|mts|cts|svelte|vue|astro)$/.test(entry.name)) {
+      try {
+        for (const id of readFileSync(path, 'utf8').match(/\bTC-\d+-\d+\b/g) ?? []) found.add(id)
+      } catch { /* 읽기 실패는 미인용으로 둔다 — 지어내지 않는다 */ }
+    }
+  }
+  return [...found]
+}
+
 // change-scope.md — 사람용 헤더 + 기계용 fenced JSON(재읽기·STALE 대조의 정본).
 export function writeChangeScopeFile(root, changeScope) {
   const path = join(root, CHANGE_SCOPE_RELATIVE)
@@ -159,6 +199,20 @@ export function readChangeScopeFile(root) {
  * (충돌·순환이면 발행 안 함) → (3) --confirm일 때만 순서대로 발행+원장(청구는 rebind 가드).
  * 주입(io)은 테스트용 — 기본 실 gh/git/원장.
  */
+
+// 프로젝트에 실제로 존재하는 디자인 정본만 티켓에 적는다 — 없는 경로를 적으면 거짓 안내다.
+const DESIGN_REF_CANDIDATES = [
+  '_workspace/02_design/design-system',
+  '_workspace/02_design/design-system.md',
+  '_workspace/02_design/component-spec',
+  '_workspace/02_design/component-spec.md',
+  '_workspace/02_design/layout-spec.md',
+  '_workspace/02_design/piece-geometry.md',
+]
+export function resolveDesignRefs(root) {
+  return DESIGN_REF_CANDIDATES.filter(rel => existsSync(join(root, rel)))
+}
+
 /** origin 판정 전 remote-tracking을 갱신한다. 실패해도 막지 않고 **스냅샷 기준임을 표기**한다
  * — git-origin의 "선행하거나 표기하거나" 경고 중 둘 다 하는 쪽이다. `--no-fetch`로 끌 수 있다
  * (네트워크 없는 환경·테스트). 결과는 각 모드 응답의 `freshness`로 나간다. */
@@ -186,7 +240,18 @@ export async function runClaim({root, repo, flags, io = {}}) {
   }
   const ledgerFile = join(root, LEDGER_RELATIVE)
   const state = (io.readState ?? readLedgerState)(ledgerFile)
-  const plan = computeBatchClaimPlan({units, ledgerState: state, opts: {foundationRoots: splitList(flags['foundation-roots'])}, branch})
+  // 이미 나간 FEAT의 **미충족 수용 기준**을 잰다 — 구현이 안 됐거나 이슈가 있으면 fix
+  // 티켓이 있어야 한다. 원 티켓을 고치지 않고 별도 티켓으로 낸다.
+  const citedIds = collectCitedTestCaseIds(root)
+  const unmetByFeature = new Map()
+  for (const unit of units) {
+    if (!state.get(unit.featureId)?.prUrl) continue
+    const verdict = evaluateTicketCompletion({
+      featureId: unit.featureId, planText: '', testCaseIds: unit.testCaseIds, citedIds,
+    })
+    if (verdict.missing.length > 0) unmetByFeature.set(unit.featureId, verdict.missing)
+  }
+  const plan = computeBatchClaimPlan({units, ledgerState: state, opts: {foundationRoots: splitList(flags['foundation-roots'])}, branch, unmetByFeature})
   const preview = formatBatchClaimPreview(plan)
   if (plan.collisions.length > 0 || plan.cycles.length > 0) {
     return {ok: false, blocked: 'plan-defects', preview, guidance: '경로 충돌/순환 의존을 feature-planner에서 해소한 뒤 청구하세요'}
@@ -195,6 +260,7 @@ export async function runClaim({root, repo, flags, io = {}}) {
   if (!flags.confirm) return {ok: true, dryRun: true, preview, freshness, closeAssets}
   // 발행(순서대로) — provider(라벨 pre-create 포함) + 원장(청구는 rebind 가드 append)
   const provider = io.provider ?? createGithubProvider({repo})
+  const designRefs = resolveDesignRefs(root) // 티켓에 실을 참고 정본(게이트 아님 — 포인터다)
   const permission = await (io.permission ?? resolveViewerPermission)({repo})
   const unitById = new Map(units.map(unit => [unit.featureId, unit]))
   const results = []
@@ -210,6 +276,7 @@ export async function runClaim({root, repo, flags, io = {}}) {
       branch,
       permission,
       repo,
+      designRefs,
     })
     results.push({featureId: item.featureId, ...outcome})
     if (outcome.blocked) break // 권한 차단은 반복 시도 무의미 — 첫 차단에서 멈추고 안내
@@ -222,24 +289,49 @@ export async function runClaim({root, repo, flags, io = {}}) {
   // 바뀐다. 원장은 `supersedes`로 무엇을 무엇이 대체했는지 남긴다(append-only).
   const superseded = []
   for (const item of plan.supersede ?? []) {
-    const fields = buildIssueFields(item.payload, {branch, assignee: flags.assignee ?? null})
+    const fields = buildIssueFields(item.payload, {branch, assignee: flags.assignee ?? null, designRefs})
     const issue = await provider.createIssue(fields)
+    // `createIssue`는 `{number, url}`을 돌려준다 — `ticketKey`는 없고, 원장은 **문자열**을
+    // 요구한다. 이 두 줄이 틀린 채 남아 있었다는 것은 대체 발행 경로가 한 번도 실행된 적이
+    // 없다는 뜻이다(2026-08-30, 첫 실행에서 LEDGER_INVALID_RECORD로 드러났다).
+    const ticketKey = String(issue.ticketKey ?? issue.number)
     ;(io.appendSupersede ?? appendSupersedeRecord)(ledgerFile, {
       featureId: item.featureId,
-      ticketKey: issue.ticketKey,
+      ticketKey,
       contentHash: item.contentHash,
       createdAt: new Date().toISOString(),
       branch,
       supersedes: item.priorTicketKey,
     })
     // 옛 티켓은 **완료가 아니라 superseded**로 닫는다 — 닫힘을 완료로 오독하면 보드가 거짓이 된다.
-    await (io.gh ?? runGh)(issueSupersedeCloseArgs(repo, item.priorTicketKey, issue.ticketKey))
-    superseded.push({featureId: item.featureId, priorTicketKey: item.priorTicketKey, ticketKey: issue.ticketKey})
+    await (io.gh ?? runGh)(issueSupersedeCloseArgs(repo, item.priorTicketKey, ticketKey))
+    superseded.push({featureId: item.featureId, priorTicketKey: item.priorTicketKey, ticketKey})
+  }
+  // **fix 티켓** — 이미 나갔는데 수용 기준이 미충족인 FEAT. 원 티켓을 고치거나 대체하지
+  // 않고 별도 티켓으로 낸다: 원 티켓은 그 시점의 계약이고, 미충족분은 새로 할 일이다.
+  // 원장에는 쓰지 않는다 — 원장은 FEAT당 하나의 정체성이고 fix는 그 FEAT의 후속 작업이지
+  // 새 정체성이 아니다(rebind 가드를 건드리면 안 된다).
+  const fixes = []
+  for (const item of plan.fix ?? []) {
+    const unit = unitById.get(item.featureId)
+    const body = [
+      `원 티켓 #${item.priorTicketKey}이 이미 PR로 나갔으나 아래 수용 기준이 검증되지 않았다.`,
+      '',
+      '## 미충족 수용 기준',
+      ...item.unmet.map(id => `- ${id}`),
+      '',
+      '판정 근거: 소스·테스트 어디에서도 위 TC ID가 인용되지 않는다(프록시 — 인용은 검증의',
+      '필요조건이지 충분조건이 아니다. 실제로 그 기준을 재는지는 리뷰가 본다).',
+      '',
+      `계약 본문은 원 티켓 #${item.priorTicketKey}과 \`${unit?.featureId}\` 명세를 따른다.`,
+    ].join('\n')
+    const issue = await provider.createIssue({title: item.title, body, labels: ['fix'], assignee: flags.assignee ?? null})
+    fixes.push({featureId: item.featureId, ticketKey: String(issue.ticketKey ?? issue.number), unmet: item.unmet, priorTicketKey: item.priorTicketKey})
   }
   // 이슈 자동 닫기 자산을 청구 브랜치에 설치한다(멱등, 덮어쓰지 않음). 커밋·push는
   // 브랜치를 만든 사람 몫이다 — CLI는 파일만 놓고 경로를 알린다.
   const installedCloseAssets = installTicketCloseAssets(root, closeAssets)
-  return {ok: true, dryRun: false, preview, results, superseded, freshness, closeAssets, installedCloseAssets}
+  return {ok: true, dryRun: false, preview, results, superseded, fixes, freshness, closeAssets, installedCloseAssets}
 }
 
 /**
@@ -359,14 +451,64 @@ export async function runLink({root, featureId, prUrl, flags, io = {}}) {
       return {ok: false, blocked: 'stale-check-unavailable', staleCheck, guidance: 'change-scope가 없거나 다른 FEAT의 것이라 STALE 대조를 수행하지 못했습니다 — 픽업으로 발급하거나 --accept-unverified-scope로 명시 인수하세요'}
     }
   }
+  // 이미 링크된 티켓의 재실행은 **멱등**이 먼저다 — 지나간 완료 주장을 다시 심판하지
+  // 않는다(그러면 재실행이 소스 상태에 따라 결과가 달라져 멱등 계약이 깨진다).
+  if (state?.get?.(featureId)?.prUrl) {
+    return {ok: true, idempotent: true, existing: state.get(featureId).prUrl,
+      closeLine: renderCloseReference(computeCloseLink({featureId, ticketKey: record?.ticketKey ?? null, ledgerState: state})),
+      staleCheck}
+  }
+  // **완료 조건 검토.** PR을 티켓에 연결하는 것은 완료를 주장하는 것이다 — 그 자리에서
+  // 이 FEAT의 수용 기준이 실제로 검증됐는지 묻는다. 종전에는 아무것도 묻지 않았고,
+  // 지켜진 것은 개발자가 잘한 것이지 게이트가 지킨 것이 아니었다(2026-08-30 실측).
+  const unitForFeature = (() => {
+    try { return loadUnits(root, flags).find(unit => unit?.featureId === featureId) ?? null } catch { return null }
+  })()
+  const completion = evaluateTicketCompletion({
+    featureId,
+    planText: loadPlanText(root, flags),
+    testCaseIds: unitForFeature?.testCaseIds,
+    citedIds: collectCitedTestCaseIds(root),
+  })
+  if (!completion.ok && !flags['accept-incomplete']) {
+    return {
+      ok: false,
+      blocked: `completion:${completion.reason}`,
+      completion,
+      guidance: completion.reason === 'no-test-cases'
+        ? `${featureId}에 수용 기준(TC)이 없습니다 — 완료를 주장할 근거가 없습니다. 계획에 TC를 적으세요`
+        : `${featureId}의 수용 기준이 검증되지 않았습니다: ${completion.missing.join(', ')} — 테스트에 그 TC ID를 인용하거나, `
+          + '계획이 유예한 것이면 계획 본문에 그 사유를 적으세요(개발자가 PR에서 유예를 선언하는 경로는 두지 않습니다). '
+          + '의식적으로 넘기려면 --accept-incomplete로 명시 인수하세요',
+    }
+  }
   const closeLink = computeCloseLink({featureId, ticketKey: record?.ticketKey ?? null, ledgerState: state})
   const closeLine = renderCloseReference(closeLink)
   const plan = computePrLinkPlan({featureId, ledgerState: state, prUrl, now: new Date().toISOString()})
   if (plan.status === 'already-linked') return {ok: true, idempotent: true, existing: plan.existing, closeLine, staleCheck}
+  // 완료 판정을 **원장에 남긴다** — 탈출구로 넘긴 링크와 전부 인용된 링크가 사후에 구별되지
+  // 않으면 "의식적 인수"는 휘발성 주장이다(2026-08-30 리뷰 MEDIUM). baseline 갱신을 의식적
+  // 행위로 기록하는 이 저장소의 규범과 같은 이유다.
+  const linkRecord = {
+    ...plan.record,
+    completion: {
+      total: completion.total,
+      cited: completion.cited.length,
+      deferred: completion.deferred,
+      missing: completion.missing,
+      ...(completion.reason ? {reason: completion.reason} : {}),
+    },
+    ...(completion.ok ? {} : {acceptedIncomplete: true}),
+    // 같은 원칙을 STALE 대조 채널에도 적용한다 — 원장만 보고 verified 링크와 미대조 인수
+    // 링크를 구별하지 못하면 "의식적 인수"는 여기서도 휘발성 주장이다(리뷰 MEDIUM).
+    staleCheck,
+    ...(flags['accept-unverified-scope'] ? {acceptedUnverifiedScope: true} : {}),
+  }
   // link는 "이 PR이 이 티켓의 것"이라는 **사실 기록**이다 — 판단할 것이 없다. 기본 실행.
-  if (flags['dry-run']) return {ok: true, dryRun: true, closeLine, record: plan.record, staleCheck}
-  ;(io.append ?? appendLedgerRecord)(ledgerFile, plan.record)
-  return {ok: true, dryRun: false, closeLine, record: plan.record, staleCheck}
+  if (flags['dry-run']) return {ok: true, dryRun: true, closeLine, record: linkRecord, staleCheck, completion}
+  ;(io.append ?? appendLedgerRecord)(ledgerFile, linkRecord)
+  // 성공 경로에서도 completion을 돌려준다 — 유예 N건이 사용자에게 보이지 않으면 침묵이다.
+  return {ok: true, dryRun: false, closeLine, record: linkRecord, staleCheck, completion}
 }
 
 /** board: 보드 강화(배정·merged — 트래커 실측). read-only. */
