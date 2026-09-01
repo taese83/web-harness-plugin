@@ -26,7 +26,22 @@ const SECTION_COUNT_TRIGGER = 8
 // search-portal 파일럿 실측: 11섹션 project-brief에 "split required"가 나와 기계끼리 모순.
 // 경로 앵커 매칭 — basename 전역 매칭이면 토픽 폴더 내 동명 파일에 새는 이론적 스코프 누수가
 // 있다(리뷰 지적). 소유권 레지스트리가 이중 방어하지만 구조적으로도 좁힌다.
-const SHRINK_ONLY_PATHS = new Set([join('_workspace', '01_plan', 'project-brief.md')])
+// solution-design.md도 분할 금지다 — spec.mjs가 `_workspace/02_design/solution-design.md`를
+// 단일 경로로 하드코딩해(spec.mjs의 SOURCE 목록·확정 경로 둘 다) 분할하면 스팩 확정이 깨진다.
+// 종전에는 예산 초과 시 "split required"가 나왔는데 **분할이 금지된 문서에 분할을 지시**하는
+// 기계끼리의 모순이었다(project-brief에서 이미 한 번 고친 것과 같은 유형).
+const SHRINK_ONLY_PATHS = new Set([
+  join('_workspace', '01_plan', 'project-brief.md'),
+  join('_workspace', '02_design', 'solution-design.md'),
+])
+
+// 기계 블록(```json web-harness:*)은 **저자가 줄일 수 있는 대상이 아니다.** 하네스가 생성하고
+// 하네스가 다시 읽는 계약 블록인데 그 크기 때문에 "본문을 줄이라"가 발화하면 시정 불가능한
+// 지시가 된다 — project-brief의 섹션 트리거를 끈 것과 같은 이유다. 선례는 spec.mjs의
+// stripHarnessMarkers("하네스 제어 마커는 내용이 아니다"). 예산은 저자가 통제할 수 있는
+// 산문만 잰다. 실측: solution-design.md 46KB 중 기계 블록 17KB.
+const MACHINE_BLOCK = /```json\s+web-harness:[\w-]+\s*\n[\s\S]*?\n```\s*/g
+const measurableBytes = source => Buffer.byteLength(source.replace(MACHINE_BLOCK, ''), 'utf8')
 
 const argv = process.argv.slice(2)
 const jsonOutput = argv.includes('--json')
@@ -102,8 +117,9 @@ for (const relativeDirectory of pendingDirectories) {
     // ── 단일 파일 산출물: 20KB 초과 또는 절 8개 초과면 분할 필수
     if (entry.isFile() && entry.name.endsWith('.md')) {
       const absolutePath = join(projectRoot, entryPath)
-      const bytes = statSync(absolutePath).size
-      const sections = countSections(readFileSync(absolutePath, 'utf8'))
+      const source = readFileSync(absolutePath, 'utf8')
+      const bytes = measurableBytes(source)
+      const sections = countSections(source)
       inspected.push({path: entryPath, kind: 'single-file', bytes, sections})
       // 디렉토리와 동명 .md 공존 금지 (계약 §디렉토리 레이아웃)
       const twinDirectory = join(projectRoot, relativeDirectory, entry.name.replace(/\.md$/, ''))
@@ -140,7 +156,7 @@ for (const relativeDirectory of pendingDirectories) {
 
     for (const name of readdirSync(join(projectRoot, entryPath)).filter(value => value.endsWith('.md') && value !== 'INDEX.md')) {
       const sectionRelative = join(entryPath, name)
-      const sectionBytes = statSync(join(projectRoot, sectionRelative)).size
+      const sectionBytes = measurableBytes(readFileSync(join(projectRoot, sectionRelative), 'utf8'))
       if (sectionBytes > SECTION_MAX_BYTES) {
         errors.push(`${sectionRelative}: ${kb(sectionBytes)} exceeds the section budget ${kb(SECTION_MAX_BYTES)} — re-split on a smaller axis`)
       }
