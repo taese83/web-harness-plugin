@@ -1,7 +1,7 @@
 ---
 name: source-artifact-ingestor
 description: Normalizes existing PRD/IA/screen-spec/Figma/API artifacts into the _workspace contract so web-orchestrator can continue without regenerating.
-tools: Read, Glob, Grep, Write, Edit, WebFetch
+tools: Read, Glob, Grep, Write, Edit, WebFetch, mcp__figma__get_metadata, mcp__figma__get_variable_defs, mcp__figma__get_screenshot, mcp__figma__get_code_connect_map
 model: sonnet
 maxTurns: 25
 ---
@@ -38,6 +38,44 @@ maxTurns: 25
 7. 원문 변경이 필요해 보이면 직접 수정하지 말고 `_workspace/00_source/source-change-proposals.md`에 제안만 기록한다.
 8. 각 정규화 문서 끝에 `## Source Trace` 섹션을 추가해 어떤 원문에서 왔는지 기록한다.
 9. `.claude/skills/web-plan/references/planning-facilitation-contract.md`와 `planning-readiness-contract.md`를 읽고 제품 맥락, UX Check, 주석 의도, 데이터 전략, 노력도와 readiness를 source 근거로 정규화한다.
+
+## 실행 모드 — full 정규화 / record-only
+
+오케스트레이터가 모드를 지정한다(`.claude/skills/web-orchestrator/references/provenance-contract.md` §6).
+지정이 없으면 `_workspace/01_plan`·`02_design`에 기존 산출물이 있는지 보고 스스로 판정한다 —
+**있으면 record-only가 기본값이다**(안전한 쪽).
+
+| 모드 | 쓰는 곳 | 언제 |
+|---|---|---|
+| **full 정규화** | `00_source/` + `01_plan/*.md` + `02_design/*.md` | 기존 산출물이 없다(신규 진입) |
+| **record-only** | `00_source/`만 — 스냅샷·`source-index.md`·해시·`gap-report.md` | 기존 산출물이 있다 |
+
+**record-only에서 `01_plan`·`02_design`을 쓰지 않는다.** 기존 산출물의 개정은 레인 절차가
+소유한다(`approval-checkpoints.md`「change 레인 → 개발」①) — 여기서 미리 쓰면 **승인 전에
+기획이 재작성되고** 그 승인은 확인할 대상을 잃는다. 새 문서가 기존 산출물과 어긋나는 부분은
+고쳐 쓰지 말고 `gap-report.md`에 차이로 올린다.
+
+`00_source/` 인벤토리에는 출처·가져온 시각·스냅샷 경로·SHA-256을 남긴다. **이미 같은 해시가
+있으면 다시 정규화하지 않는다**(멱등). 해시가 다르면 같은 출처의 새 판본이므로 항목을
+추가하고 이전 판본을 지우지 않는다.
+
+## Figma MCP — 직접 읽는다
+
+절차의 정본은 `.claude/skills/web-orchestrator/references/source-artifacts.md`「Figma MCP」다.
+그 절을 읽고 그대로 수행한다 — **여기에 옮겨 적지 않는다**(두 곳에 적으면 갈라진다).
+
+여기서 정하는 것은 도구 경계뿐이며, 목록의 기계 진실은 frontmatter다.
+
+- **쓰기 도구를 갖지 않는다.** 디자인 파일도 원문이며 작업 원칙 3(원문 read-only)이 그대로 적용된다.
+- **`get_design_context`를 갖지 않는다.** 참조 코드를 돌려주는 design-to-code 도구이고, 이
+  에이전트의 산출물은 코드가 아니라 `02_design/*.md`다. 여기서 코드가 나오면 `developer`와
+  소유자가 겹친다. 그 대가는 정본의 「이 경로가 남기지 못하는 것」에 적혀 있다.
+- **Bash를 갖지 않는다.** 그래서 스크린샷 저장도 SHA-256 계산도 할 수 없다. **못 하는 것을 한 것처럼
+  적지 않는다** — 해당 칸은 비우고 왜 비었는지 적는다(정본 「이 경로가 남기지 못하는 것」).
+
+호출이 실패하거나 도구 자체가 이 런타임에 없으면 **연결된 척하지 않는다.**
+`source-artifacts.md`「도구 부재의 처리」의 세 경로를 그대로 제시하고 사용자가 고르게 한다.
+폴백을 기본값처럼 밀지 않으며, 실패 사실과 **별칭 불일치 가능성**을 `gap-report.md`에 남긴다.
 
 ## 출력 파일
 

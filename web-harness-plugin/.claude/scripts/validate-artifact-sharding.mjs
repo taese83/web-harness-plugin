@@ -35,14 +35,6 @@ const SHRINK_ONLY_PATHS = new Set([
   join('_workspace', '02_design', 'solution-design.md'),
 ])
 
-// 기계 블록(```json web-harness:*)은 **저자가 줄일 수 있는 대상이 아니다.** 하네스가 생성하고
-// 하네스가 다시 읽는 계약 블록인데 그 크기 때문에 "본문을 줄이라"가 발화하면 시정 불가능한
-// 지시가 된다 — project-brief의 섹션 트리거를 끈 것과 같은 이유다. 선례는 spec.mjs의
-// stripHarnessMarkers("하네스 제어 마커는 내용이 아니다"). 예산은 저자가 통제할 수 있는
-// 산문만 잰다. 실측: solution-design.md 46KB 중 기계 블록 17KB.
-const MACHINE_BLOCK = /```json\s+web-harness:[\w-]+\s*\n[\s\S]*?\n```\s*/g
-const measurableBytes = source => Buffer.byteLength(source.replace(MACHINE_BLOCK, ''), 'utf8')
-
 const argv = process.argv.slice(2)
 const jsonOutput = argv.includes('--json')
 const options = argv.filter(value => value !== '--json')
@@ -117,9 +109,8 @@ for (const relativeDirectory of pendingDirectories) {
     // ── 단일 파일 산출물: 20KB 초과 또는 절 8개 초과면 분할 필수
     if (entry.isFile() && entry.name.endsWith('.md')) {
       const absolutePath = join(projectRoot, entryPath)
-      const source = readFileSync(absolutePath, 'utf8')
-      const bytes = measurableBytes(source)
-      const sections = countSections(source)
+      const bytes = statSync(absolutePath).size
+      const sections = countSections(readFileSync(absolutePath, 'utf8'))
       inspected.push({path: entryPath, kind: 'single-file', bytes, sections})
       // 디렉토리와 동명 .md 공존 금지 (계약 §디렉토리 레이아웃)
       const twinDirectory = join(projectRoot, relativeDirectory, entry.name.replace(/\.md$/, ''))
@@ -128,7 +119,13 @@ for (const relativeDirectory of pendingDirectories) {
       }
       if (SHRINK_ONLY_PATHS.has(entryPath)) {
         if (bytes > SINGLE_FILE_MAX_BYTES) {
-          errors.push(`${entryPath}: summary document is ${kb(bytes)} (budget ${kb(SINGLE_FILE_MAX_BYTES)}) — shrink the body and point to source shards (split is forbidden by contract)`)
+          // 시정 지시는 문서마다 다르다. project-brief는 원본 샤드를 가리키면 되지만
+          // solution-design은 요약 문서가 아니고 가리킬 샤드도 없다 — 같은 문구를 주면
+          // 설계 내용을 지우거나 없는 샤드를 가리키게 된다.
+          const remedy = entryPath.endsWith(join('02_design', 'solution-design.md'))
+            ? 'shrink the prose (rationale·alternatives) — the machine block stays; split is forbidden because lockSpec requires a flat path'
+            : 'shrink the body and point to source shards (split is forbidden by contract)'
+          errors.push(`${entryPath}: ${kb(bytes)} exceeds the single-file budget ${kb(SINGLE_FILE_MAX_BYTES)} — ${remedy}`)
         }
       } else if (bytes > SINGLE_FILE_MAX_BYTES) {
         errors.push(`${entryPath}: unsharded artifact is ${kb(bytes)} (budget ${kb(SINGLE_FILE_MAX_BYTES)}) — split required`)
@@ -156,7 +153,7 @@ for (const relativeDirectory of pendingDirectories) {
 
     for (const name of readdirSync(join(projectRoot, entryPath)).filter(value => value.endsWith('.md') && value !== 'INDEX.md')) {
       const sectionRelative = join(entryPath, name)
-      const sectionBytes = measurableBytes(readFileSync(join(projectRoot, sectionRelative), 'utf8'))
+      const sectionBytes = statSync(join(projectRoot, sectionRelative)).size
       if (sectionBytes > SECTION_MAX_BYTES) {
         errors.push(`${sectionRelative}: ${kb(sectionBytes)} exceeds the section budget ${kb(SECTION_MAX_BYTES)} — re-split on a smaller axis`)
       }
