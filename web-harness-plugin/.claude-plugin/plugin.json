@@ -1,7 +1,7 @@
 {
   "name": "web-harness",
   "description": "Multi-agent web development harness — planning, design, implementation, QA pipeline with an approval-gated local console.",
-  "version": "0.23.11",
+  "version": "0.23.12",
   "author": {
     "name": "taese83"
   },
