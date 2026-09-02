@@ -161,6 +161,10 @@ Figma로 준다) · `absent`(세우지 않는다) 중 무엇으로 서는지, `a
   "concurrency": ["web-worker|service-worker|worker-thread"],
   "architecture": {"pattern": "fsd|layered|domain-modules|existing|<기타>", "rationale": "..."},
   "layerMap": {"<논리 레이어>": "<실제 경로>"},
+  "designPreview": {                     // 선택 — 없으면 프리뷰를 기본 실행한다
+    "policy": "required|skip",
+    "rationale": "<skip이면 필수 — 기본을 끄는 것은 판단이다>"
+  },
   "designSource": {                      // 선택 — 디자인 값이 있는 산출물에만
     "kind": "figma|markup|inline|none",
     "ref": "<원본 식별자>",

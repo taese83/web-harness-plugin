@@ -297,6 +297,40 @@ export const hasUserInterface = (targetShapes, catalog = readShapeChecks()) => {
 const DESIGN_SOURCE_KINDS = new Set(['figma', 'markup', 'inline', 'none'])
 const TOKEN_FORMATS = new Set(['dtcg', 'css-vars', 'none'])
 
+// designPreview — **기본 동작을 끄는 결정이 사람의 기억이 아니라 스팩에 남는 자리다.**
+//
+// Design Preview Loop는 Phase 2가 기본 실행하고(`phase-2-design.md` Wave 2) Phase 3이
+// `APPROVED`가 아니면 막는다(`phase-3-development.md`). 프리뷰를 만들지 않기로 한 프로젝트는
+// 그 결정을 담을 곳이 없어 **매 라운드 사람이 "만들지 마라"를 말해야 했다** — 한 번 빠뜨리면
+// 프리뷰가 생기고, 그다음 개발이 STALE로 막힌다(2026-09-02 실측).
+//
+// 선택 필드이고 기본은 `required`다. 없으면 종전 동작과 같다.
+// `skip`에 rationale을 요구하는 이유는 constitution.substrate의 `declared`와 같다 —
+// 기본을 벗어나는 것은 판단이므로 근거가 남아야 한다.
+const DESIGN_PREVIEW_POLICIES = new Set(['required', 'skip'])
+
+export const validateDesignPreview = decision => {
+  const designPreview = decision?.designPreview
+  if (designPreview === undefined || designPreview === null) return undefined
+  if (typeof designPreview !== 'object' || Array.isArray(designPreview)) {
+    throw new LockError('DESIGN_PREVIEW_INVALID_SHAPE', 'designPreview가 객체가 아니다')
+  }
+  const {policy, rationale} = designPreview
+  if (!DESIGN_PREVIEW_POLICIES.has(policy)) {
+    throw new LockError(
+      'DESIGN_PREVIEW_POLICY_INVALID',
+      `designPreview.policy는 ${[...DESIGN_PREVIEW_POLICIES].join('|')} 중 하나여야 한다: ${policy}`,
+    )
+  }
+  if (policy === 'skip' && !isNonEmptyString(rationale)) {
+    throw new LockError(
+      'DESIGN_PREVIEW_RATIONALE_MISSING',
+      'designPreview.policy=skip이면 rationale이 필요하다 — 기본을 끄는 것은 판단이므로 근거가 남아야 한다',
+    )
+  }
+  return designPreview
+}
+
 export const validateDesignSource = decision => {
   const designSource = decision?.designSource
   if (designSource === undefined || designSource === null) return undefined
@@ -494,6 +528,7 @@ export const buildSpec = ({decision, digest, acceptanceIds}) => {
     concurrency: Array.isArray(decision.concurrency) ? decision.concurrency : [],
     layerMap: validateLayerMap(decision),
     designSource: validateDesignSource(decision),
+    designPreview: validateDesignPreview(decision),
     testLayers,
     libraries,
     moduleBoundaries: Array.isArray(decision.moduleBoundaries) ? decision.moduleBoundaries : [],

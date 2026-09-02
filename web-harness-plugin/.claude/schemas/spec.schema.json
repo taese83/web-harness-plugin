@@ -405,6 +405,27 @@
           }
         }
       }
+    },
+    "designPreview": {
+      "type": "object",
+      "description": "디자인 프리뷰(행위 프로토타입) 정책. 선택 필드다 — 없으면 종전대로 Design Preview Loop를 기본 실행한다. `skip`은 프로젝트가 그 기본을 끄기로 한 결정이며, 그 결정이 사람의 기억이 아니라 스팩에 남는다.",
+      "required": [
+        "policy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "policy": {
+          "enum": [
+            "required",
+            "skip"
+          ],
+          "description": "required=기본. Phase 2가 프리뷰를 만들고 Phase 3이 APPROVED를 요구한다 · skip=만들지 않고 Phase 3도 프리뷰로 막지 않는다"
+        },
+        "rationale": {
+          "type": "string",
+          "description": "skip이면 필수. 기본을 끄는 것은 판단이므로 근거가 남아야 한다(constitution.substrate의 declared와 같은 규칙)"
+        }
+      }
     }
   }
 }
