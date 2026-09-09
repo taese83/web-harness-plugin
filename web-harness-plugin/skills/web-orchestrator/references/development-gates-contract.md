@@ -129,7 +129,20 @@ entrypoint나 dependency가 아직 없어 check가 실행 불가능하면 `BLOCK
 API contract/auth, route, Mock, component가 완료된 뒤:
 
 1. API schema ↔ runtime validation ↔ Mock method/path/status/body
-2. route ↔ page/widget/component public export
+2. route ↔ page/widget/component public export — **경로와 export 이름을 기계가 센다**
+   (`release-gate-lib`의 `routeBinding`·`resolveSymbols`, Phase 4). 선언된 파일이 실재하는지,
+   없으면 그 심볼이 **다른 파일에 있는지**(개명) 아니면 **그 이름이 어디에도 없는지** 가르고,
+   실재하지만 **아무것도 export하지 않는 껍데기**도 잡는다. 심볼 파싱은 **프로젝트의
+   TypeScript를 빌려** 하며 없으면 `NOT_MEASURED`(통과가 아니다).
+   **여전히 보지 않는 것**: 그 컴포넌트가 실제로 그 route에 걸렸는가 · props 계약 ·
+   라우팅 표의 `Component` 열에 적힌 심볼 이름(기대 심볼은 파일명에서 유도한다).
+   실재 파일은 **export가 하나라도 있으면 통과한다** — 파일명과 심볼이 다른 것이 정상인
+   경우가 있어 일치를 요구하면 오탐이 된다(실측 근거는 `docs/protected-core.md` §4).
+   「그 이름이 어디에도 없음」은 **미구현과 같지 않다** — 이름까지 바뀐 개명이 여기 섞인다
+   (실측: `*Page` 선언 3건이 실제로는 `*Screen`으로 존재했다).
+   **막지 않는다** — 보고이며 **판정은 이 게이트의 사람·에이전트 몫이다**: 부재가 보고되면
+   미구현인지 개명인지 보고, 미구현이면 만들고 개명이면 `layout-spec`을 고친다.
+   실행 시점은 **Phase 4 릴리스**다 — 이 게이트 시점에는 여전히 사람·에이전트가 본다
 3. production build에서 Mock activation이 가능한 구조인지 정적 확인
 4. `typecheck`, `lint`
 
@@ -166,6 +179,37 @@ web-harness-script validate-requirements-notation --project {root}
 **EARS와 Given/When/Then은 동형이다** (실측: 파일럿 AC 38개 전부 구조 충족 — Given=상태/전제,
 When=트리거, Then=응답). 그래서 별도 문법을 도입하지 않고 기존 GWT AC에 EARS의 구조 요건
 (응답 명시 필수, 조건·트리거 분류)을 검사로 얹는다. 한국어·영어를 모두 인정한다(0단계 교훈).
+
+## Gate D — 디자인 토큰 (선언과 토큰 파일의 일치)
+
+`spec.json`의 `designSource`가 선언돼 있으면, **토큰을 소비하는 UI를 쓰기 전에** 실행한다:
+
+```bash
+web-harness-script validate-design-tokens --project {project-root}
+```
+
+**원본을 다시 읽지 않는다.** 하네스는 Figma를 인제스트할 수 있으나(`source-artifacts.md`
+§Figma MCP) 그것은 1회 스냅샷이고, ingestor는 Bash가 없어 해시를 계산하지 못하며 스크립트는
+Bash를 갖지만 MCP를 부르지 못한다. 그 사이에서 **지금 할 수 있는 것**이 선언과 로컬 토큰
+파일의 대조다. 원본 값과의 대조는 REST API 경로가 열릴 때 붙는다.
+
+검사 셋:
+
+| | 판정 |
+|---|---|
+| `tokenPath` 파일 존재 | 없으면 `FAIL` — 대조할 대상이 없다 |
+| **모드 커버리지** | 선언한 각 모드의 `selector`가 토큰 파일에 있는가. 없으면 그 모드의 값이 **어디에도 정의되지 않은 것**이다 |
+| **읽을 수 없는 원본 × 미해결 토큰** | `readable: false`인데 미해결 토큰이 남아 있으면 `FAIL` — 채울 경로가 없다 |
+
+셋째가 이 게이트의 존재 이유다. 각각은 정상일 수 있다(아직 안 채웠거나, 채워졌는데 원본이
+잠깐 안 읽히거나). **둘이 동시면 막힌 것**이고, 그 사실은 산문이 아니라 게이트로 드러나야 한다.
+
+`designSource`가 없으면 `UNDECLARED`, `kind: "none"`이면 `SKIPPED`로 **명시 보고**하고 종료코드
+0이다 — 조용한 통과가 아니다(`validate-ui-lane` 관용구).
+
+**주석은 정의가 아니다.** 모드 검사는 CSS 주석을 제거한 뒤 수행한다 — 실측(2026-09-02)에서
+토큰 파일 주석에 셀렉터가 설명으로 적혀 있어, 그 모드가 구현되지 않았는데도 부분 문자열
+검사가 통과했다. 주석이 게이트를 통과시키면 그 게이트는 있으나 마나다.
 
 ## Gate L — 산출물 언어 (선언과 실제의 일치)
 

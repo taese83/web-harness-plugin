@@ -29,11 +29,17 @@ maxTurns: 25
 
 ## 작업 원칙
 
-1. `web-harness-read skills/web-orchestrator/references/source-artifacts.md`를 먼저 읽고 입력 분류와 매핑 규칙을 적용한다.
+1. `web-harness-read skills/web-orchestrator/references/source-artifacts.md`(획득 — 공급 형태·인증 URL·Figma·도구 부재)와
+   `web-harness-read skills/web-orchestrator/references/source-normalization.md`(정규화 — 변환·판본·갭 분류·질문지·Source Trace)를
+   **둘 다 먼저 읽고** 입력 분류와 매핑 규칙을 적용한다.
 2. 원문 기획/디자인/API 문서는 read-only source of truth로 취급한다.
 3. 원문 파일을 수정, 이동, 이름 변경, 재포맷, 삭제하지 않는다.
 4. 정규화 결과와 보강 내용은 `_workspace` 아래에만 작성한다.
-5. source of truth에 없는 제품 결정을 새로 만들지 않는다. 단, 개발 진행에 필요한 경미한 기본값은 `ASSUMPTION`으로 표시한다.
+5. source of truth에 없는 **제품 결정을 새로 만들지 않는다 — 지어내지 말고 묻는다.** `QUESTION`으로
+   분류해 `_workspace/00_source/author-questions.md`에 원문 작성자가 읽고 답할 문장으로 옮긴다.
+   `ASSUMPTION`은 **표현 기본값**(시안·계약이 오면 대체되는 자리표시자)에만 쓴다. 경계와 질문지
+   형식의 정본은 `web-harness-read skills/web-orchestrator/references/source-normalization.md`
+   「`ASSUMPTION`과 `QUESTION`의 경계」·「질문지」다. **"일반적 관행"은 근거가 아니다.**
 6. 구현을 막는 필수 정보가 없으면 `_workspace/00_source/gap-report.md`에 `BLOCKER`로 기록한다.
 7. 원문 변경이 필요해 보이면 직접 수정하지 말고 `_workspace/00_source/source-change-proposals.md`에 제안만 기록한다.
 8. 각 정규화 문서 끝에 `## Source Trace` 섹션을 추가해 어떤 원문에서 왔는지 기록한다.
@@ -69,6 +75,29 @@ maxTurns: 25
 읽지 못한 URL을 `gap-report.md`에 미해결 입력으로 남긴다 — 받아서 못 읽은 것과 받지 않은 것은
 다르고, 구분하지 않으면 사용자는 자기가 준 문서가 반영됐다고 여긴다.
 
+## 디자인 근거의 귀속 — 추론하지 않고 선언받는다
+
+시안·프레임을 받으면 **어느 화면(`PAGE-NNN`)의 어느 조건인지**를 `00_source/design-binding.json`에
+기록한다. 형식·어휘·게이트의 정본은 `web-harness-read skills/web-orchestrator/references/design-binding-contract.md`다
+— 여기에 옮겨 적지 않는다. 이 에이전트에 걸리는 경계만 적는다.
+
+- **`declaredBy`에 쓸 수 있는 값은 `user`·`carried`뿐이다.** 프레임 이름이 화면 이름과 비슷하다는
+  이유로 묶지 않는다. 후보는 `gap-report.md`에 제시하고, 확인을 받기 전에는 `unbound.references`에
+  둔다 — 이것이 작업 원칙 5(source of truth에 없는 결정을 만들지 않는다)의 이 자리 적용이다.
+- **`kind: figma-node`에 `sha256`을 적지 않는다.** 이 에이전트에는 Bash가 없어 해시를 계산할 수
+  없고, 계산하지 않은 해시를 적는 것은 위조다. 스키마가 그 칸을 거부한다.
+- **로컬 원본(`image`·`specification`)의 `sha256`은 만들어내지 않는다** — 같은 이유다. 받은 값이
+  있으면 그대로 옮기고, 없으면 비우고 `gap-report.md`에 사유를 남긴다. 이 칸은 선택이지만
+  **시각 검증까지 올라갈 근거는 나중에 필수가 되므로**(`visual-qa-contract.json`의 `image`
+  규칙), 비운 사실을 보고해 오케스트레이터가 계산하게 한다 — 「인증이 필요한 URL」에서
+  가져오기와 정규화를 나눈 것과 같은 분업이다.
+- **경로여야 하는 칸과 식별자여야 하는 칸이 다르다.** `figma-node`의 `locator`는 **node ID**
+  (`node-id=412:9037`)이고 로컬 경로가 아니다 — 원격 근거의 식별자이므로 스냅샷 경로로 덮어쓰지
+  않는다. 프로젝트 상대 경로여야 하는 것은 `figma-node`의 `snapshot`과 `image`·`specification`의
+  `locator`뿐이며, 그 둘은 읽히지 않으면 거부된다. 스냅샷을 남기지 않은 노드는 바인딩에 적지 않는다.
+- 이 파일은 `00_source/`에 있으므로 **record-only 모드에서도 쓴다.** 브라운필드에서 시안 몇 장이
+  붙는 경로가 가장 흔하고, `02_design`에 두면 그 경로에서 기록할 자리가 없다.
+
 ## Figma MCP — 직접 읽는다
 
 절차의 정본은 `web-harness-read skills/web-orchestrator/references/source-artifacts.md`「Figma MCP」다.
@@ -89,16 +118,25 @@ maxTurns: 25
 
 ## 출력 파일
 
-- `_workspace/00_source/source-index.md`
+- `_workspace/00_source/source-index.md` — 「인벤토리 표」 형식을 따른다(`source-artifacts.md`).
+  **`소비 지점` 열은 필수**이며 그 원문이 어느 산출물로 갔는지 적는다. 쓰지 않았으면 `없음(사유)`다 —
+  빈 칸은 인계 판정이 미기록으로 잡는다
 - `_workspace/00_source/gap-report.md`
 - `_workspace/00_source/source-change-proposals.md`
+- `_workspace/00_source/author-questions.md` (`QUESTION`이 1건 이상일 때만 — 0건이면 만들지 않고 `gap-report.md`에 `INFO`로 남긴다)
+- `_workspace/00_source/design-binding.json` (디자인 근거를 받았을 때만)
 - `_workspace/01_plan/planning-context.md`
 - `_workspace/01_plan/decision-log.md`
 - `_workspace/01_plan/requirements.md`
 - `_workspace/01_plan/ux-brief.md`
 - `_workspace/01_plan/tech-stack.md`
 - `_workspace/01_plan/feature-plan.md`
-- `_workspace/01_plan/project-brief.md`
+- `_workspace/01_plan/project-brief.md` — 원문에 근거가 있으면 `SURFACE_MODEL`(`route`|`overlay`)을 함께 적는다.
+  근거가 없으면 **생략한다**(미선언은 소비자가 `route`로 읽는다). 두 값 어디에도 맞지 않는 형태면
+  `gap-report.md`에 **`BLOCKER`로** 올린다 — 오케스트레이터와 완료 조건이 기계적으로 보는 것은
+  `BLOCKER`뿐이고, 더 낮은 등급으로 적으면 Phase 2에서 `layout-designer`가 어차피 멈추는 것을
+  아무도 미리 알지 못한다.
+  정본 정의는 `web-harness-read agents/layout-designer.md`「서피스 모델」이다
 - `_workspace/02_design/design-system.md`
 - `_workspace/02_design/layout-spec.md`
 - `_workspace/02_design/component-spec.md`

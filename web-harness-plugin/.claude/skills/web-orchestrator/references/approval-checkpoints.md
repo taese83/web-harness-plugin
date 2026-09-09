@@ -2,7 +2,26 @@
 
 ## Phase 1 → Phase 2
 
-Phase 1이 끝나면 다음 내용을 사용자에게 보여주고 명시적으로 확인한다.
+**먼저 기계 판정을 돌리고 결과를 그대로 보여준다.** 디자인 단계가 읽을 입력이 기계가 읽을 수
+있는 형태인지 보는 검사이며, 2026-08-30부터 코드에 있었으나 **부르는 계약 문장이 없어 한 번도
+실행되지 않았다**(`docs/protected-core.md` §4 「단계 인계 판정」 ③).
+
+```bash
+node .claude/scripts/validate-handoff-readiness.mjs --project {root} --to design
+```
+
+**강도(정직): 자동 차단이 아니다.** `HOLES`는 아래 「수정 요청이 있으면 해당 planning wave만
+다시 실행한다」 경로로 보낸다 — 목록을 그대로 보여주고 무엇을 고칠지 사용자가 정한다.
+차단으로 두지 않는 이유는 §4에 등록된 유예 사유 그대로다: 기존 형식 ux-brief에서 이 상태가
+흔해서, 자동 차단은 모든 `new` 레인을 Phase 1에서 세운다. **넘어가는 것도 선택지이며 그 대가를
+함께 말한다** — `design-inputs` 검사는 이 인계에만 있고(`--to development`에는 없다),
+`design-binding`이 잡는 부분만 Phase 2 → 3에서 다시 걸린다. 즉 **여기서 넘기면 조건 분모의
+품질은 다시 재지 않는다.**
+
+고치는 비용은 여기가 가장 싸다 — planning wave 하나를 다시 돌리면 되고, 스팩 재확정도
+receipt 재발급도 따라오지 않는다.
+
+그 위에 다음 내용을 사용자에게 보여주고 명시적으로 확인한다.
 
 - 서비스명과 사용자 목표
 - 대상 화면/기능, 현재 pain, 관찰 가능한 성공 조건
@@ -12,6 +31,47 @@ Phase 1이 끝나면 다음 내용을 사용자에게 보여주고 명시적으�
 - `mock | dev-read-only | real-read-only | production-integration-later` 데이터 전략과 Mock→real 조건
 - `S | M | L | XL` 상대 노력도, driver, `invest | reduce | split`, 가장 작은 가시적 검토 단위
 - `WEB_PROFILE`, 주요 라이브러리, provider/runtime target
+- **디자인 근거의 귀속**(`DESIGN_SOURCE: supplied`일 때): `00_source/design-binding.json`의 화면·조건별 근거와 **미결**(`unbound`·`resolution: pending`)을 그대로 보여주고 확정받는다. 근거가 없는 조건은 빈 칸이 아니라 `derive | reuse:<id>`로 **결정**한다 (`design-binding-contract.md`) — 이 결정을 미루면 구현 중에 즉흥으로 내려진다
+- **디자인 부채 — `DESIGN_SOURCE`가 `absent`일 때 반드시**(그 외에는 생략한다):
+
+  ```bash
+  node .claude/scripts/validate-handoff-readiness.mjs --project {root} --design-debt
+  ```
+
+  **조건별 결정은 요구하지 않는다.** 이 시점의 디자인 방향은 아직 `ASSUMPTION(시안 확정)`이고
+  (`design-readiness-contract.md` §2), 근거가 없는 상태에서 "이 조건을 어떻게 그릴지 정하라"고
+  물으면 답할 수 없다. 그 결정을 받는 자리는 개발 착수 직전이다(`phase-3-development.md`
+  「디자인 부채 청구」). 출력의 마지막 줄("정하지 않은 조건은 구현하는 사람이 그 자리에서
+  정하게 된다")은 **시점 중립**이며, 여기서는 그 시점이 개발 착수 직전임을 함께 말한다.
+
+  **다만 하나는 여기서 확인한다 — 위 확인 목록에 한 줄로 넣는다:**
+  `디자인: absent 유지 (부채 N건 인지)`. 조건별 결정과 달리 **"디자인을 붙일지"는 지금도 답할
+  수 있는 결정**이고, **그 비용이 여기가 가장 싸다** — 지금 `generated`·`supplied`로 되돌리면
+  Phase 2를 정상 수행하면 되지만, 개발 착수 후에 붙이면 `LOCK_INPUTS`가 바뀌어 **스팩 재확정과
+  receipt 재발급이 따라온다**(`provenance-contract.md` §3). 질문을 늘리지 않는다 — 이미 명시적
+  확인을 받는 자리이므로 항목 하나가 늘 뿐이다.
+
+  보여주는 이유는 **선택의 대가를 그 자리에 두기 위해서**다. `/wh`에서 디자인 ④를 고를 때는
+  조건 표가 아직 서기 전이라 셀 수 없었고(기획 문서를 가져왔더라도 정규화 전이다), 지금은
+  셀 수 있다 — `provenance-contract.md` §2가
+  기획 `absent`에 요구하는 것("대가를 숨기지 않는다")의 디자인판이다.
+
+  **`denominator-broken`이면 부채 목록이 아니라 기획 결함이다.** 조건 분모(`ux-brief` 정보 위계
+  표)가 서지 않은 것이므로 "보여주고 넘어가지" 않고 **이 체크포인트의 수정 요청 경로로 다룬다**
+  — 아래 "수정 요청이 있으면 해당 planning wave만 다시 실행한다"가 그 자리다. 기존 형식
+  ux-brief는 이 상태가 흔하며, 고치는 비용이 여기가 가장 싸다.
+
+  **`generated`·`supplied`에서는 이 항목을 돌리지 않는다.** 돌리면 **거짓 청구서**가 나오기
+  때문이다 — 두 경로 모두 Phase 2 이전이라 디자인 산출물이 없고, 보고는 모든 조건을 근거
+  없음으로 센다. `supplied`의 귀속 기록 부재는 위 「디자인 근거의 귀속」 항목이 이미 사람
+  확인으로 덮고, 무문서 경로는 `docs/protected-core.md` §4에 등록돼 있다.
+- **`SURFACE_MODEL: overlay`를 선언했으면 Phase 3 미정합을 함께 알린다**(`project-brief.md`에
+  그 행이 있을 때만). 화면 단위가 route가 아닌 형태는 Phase 2까지만 성립한다 —
+  `buildable-app-contract.md`는 여전히 route table과 concrete page를, `integration-verifier`는
+  명시적 404 route를 **무조건** 요구한다. 게이트를 끄지 않았으므로 overlay 프로젝트는 개발
+  진입에서 loud하게 막힌다. 그 사실을 승인 **전에** 말한다 — 승인 뒤에 알면 벽을 없앤 것이
+  아니라 뒤로 옮긴 것이 된다. 확인 항목은 한 줄이다: `서피스 모델: overlay (Phase 3 미정합 인지)`.
+  어휘와 커버 범위의 정본은 `../../../agents/layout-designer.md`「서피스 모델」이다
 - 미해결 `ASSUMPTION`, `NEEDS_DECISION`, `BLOCKED`
 - `plan-review.md`의 `PASS | NEEDS_DECISION | BLOCKED`와 최대 3개의 우선 결정사항
 
@@ -32,6 +92,22 @@ node .claude/scripts/validate-handoff-readiness.mjs --project {root} --to develo
 지금 메우는 비용이 그때 메우는 비용보다 싸다. 검사 항목은 다음 단계의 기계가 실제로 읽는
 것에서 도출한다 — 의존·경로 선언, 설계 미결정 종결, 스팩 tier, 확정 결정의 실물 반영.
 
+**모션 역할 공백도 함께 본다 — 막지는 않는다.**
+
+```bash
+node .claude/scripts/validate-handoff-readiness.mjs --project {root} --motion-role
+```
+
+반복 모션(스켈레톤·shimmer·스피너)을 서술하면서 **주기 역할 토큰을 선언하지 않았으면** 보고한다.
+근인은 오용이 아니라 선언의 공백이다 — 주기 토큰이 없으면 구현자는 가장 가까운 duration을
+빌리고, 실측(greenfield-pilot-2 A-1)에서 200ms 인터랙션 토큰이 스켈레톤 루프 주기가 됐다.
+**14종 verifier가 전부 통과시켰고 사용자가 육안으로 잡았다** — 「틀린 스펙은 무사통과한다」의
+대표 사례다.
+
+**강도(정직): 항상 exit 0이고 진행을 막지 않는다.** 전수 드라이런(18개 프로젝트)에서
+오탐 2건이 나왔고 자연어 중의성(부정문·다의어)에서 오는 것이라 규칙을 더 얹어도 완전해지지
+않는다. 반복 모션이 없는데 잡혔으면 오탐이며 그대로 진행한다 — 그 판단은 사람이 한다.
+
 그 위에 아래 내용을 사용자에게 보여주고 명시적으로 확인한다.
 
 - 화면·route 목록과 핵심 정보 구조
@@ -40,7 +116,7 @@ node .claude/scripts/validate-handoff-readiness.mjs --project {root} --to develo
 - 색상·타이포그래피·responsive/layout-stability 기준
 - `DESIGN_PROTOTYPE_MODE`와 prototype/screenshot이 있으면 시각 자료
 - Design Preview Loop 결과: 프리뷰 URL(또는 스크린샷), FEAT/TC 배지·side panel 추적성, 시안 확정 내역(커밋 방향·기각 방향·근거), `validate-design-preview.mjs`의 `APPROVED` 상태, `design-review.md`의 source/preview/traceability 승인 해시, 미결 `NEEDS_DECISION` (`design-approval-contract.md`) — 프리뷰는 실렌더링 근사치라는 한계 문구 포함
-- `VISUAL_QA_MODE`이면 target/state/mode matrix, reference mapping, threshold와 baseline 승인자
+- `VISUAL_QA_MODE`이면 target/state/mode matrix, reference mapping, threshold와 baseline 승인자 — `design-binding.json`이 있으면 같은 `referenceId`가 양쪽에서 같은 것을 가리키는지 함께 확인한다(어긋나면 receipt 단계에서 거부된다)
 - 새 `ASSUMPTION`, `NEEDS_DECISION`, `BLOCKED`
 - `design-review.md`가 있으면 최대 3개의 우선 결정사항
 
@@ -53,7 +129,13 @@ node .claude/scripts/validate-handoff-readiness.mjs --project {root} --to develo
 빠지는 것은 체크포인트의 **대상**이지 강도가 아니다 — 아래 세 조건은 전부 기존 게이트다.
 
 한 단계만 `absent`면 나머지 단계의 체크포인트는 **그대로 선다**. 디자인만 `absent`이면 Phase 1
-체크포인트를 정상 수행하고 Phase 2 자리에 이 절이 들어간다. 기획이 있으면 `acceptanceSource`가
+체크포인트를 정상 수행하고 Phase 2 자리에 이 절이 들어간다.
+
+**디자인 `absent`의 결정 지점은 여기가 아니라 Phase 3 착수 직전이다.** 실측(2026-09-04)에서
+디자인 부재는 이 승인의 세 조건 어디에도 걸리지 않는다 — 인계 판정이 대조군과 동일하게 READY다
+(`provenance-contract.md` §2 「디자인 `absent`의 대가」). 그래서 그 청구는 개발이 실제로 화면에
+부딪히는 자리로 옮겨져 있다(`phase-3-development.md` 「디자인 부채 청구」가 정본). 이 절만 읽고
+"디자인은 물을 것이 없다"고 결론짓지 않는다. 기획이 있으면 `acceptanceSource`가
 `feature-plan`이 될 수 있으므로 ③의 인수가 필요 없을 수도 있다 — ②의 실행 결과가 정한다.
 
 ### ① 스팩이 확정됐다 — 기계가 강제한다

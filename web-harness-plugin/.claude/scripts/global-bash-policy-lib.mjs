@@ -740,8 +740,27 @@ const validationScriptContract = (script, args, context) => {
   }
   // 아래 셋은 **읽기 전용**이다(쓰기·프로세스 실행 호출 0건 확인). 문서가 실행을 지시하는데
   // 등록이 없어 에이전트 경로에서 DENY_VALIDATION_COMMAND로 막혀 있었다 — 저자는 메인
-  // 스레드라 안 보였다(2026-08-30 배선 감사). 쓰기 능력이 있는 나머지(init-workspace ·
-  // run-golden-profile · ticket/cli)는 인자 계약 설계가 필요해 등록하지 않는다.
+  // 스레드라 안 보였다(2026-08-30 배선 감사).
+  //
+  // **2026-09-08: `init-workspace.mjs`를 열었다.** 위 감사에서 "인자 계약 설계가 필요해
+  // 등록하지 않는다"로 유보했는데, 그 사이 `web-orchestrator/SKILL.md`가 **Phase 0의 첫
+  // 명령**으로 이것을 지시하게 됐다 — 실행으로 확인했다(`DENY_VALIDATION_COMMAND`).
+  // 유보의 대가가 「파이프라인 시작 자체가 에이전트 경로에서 막힘」이 됐으므로 계약을 좁게
+  // 설계해 열었다(아래). 나머지 둘(`run-golden-profile` · `ticket/cli`)은 그대로 유보한다 —
+  // 전자는 호스트 실행·evidence 기록이라 I6 판단이 따로 필요하고, 후자는 티켓 상태를 바꾼다.
+  if (script === '.claude/scripts/init-workspace.mjs') {
+    // **쓰기가 있는 첫 등록이다.** 쓰는 범위는 `<project-root>/_workspace/` 안으로 닫혀 있다 —
+    // 디렉터리 6개와 마커(`_workspace/web-harness.md`)뿐이고, `--project-root`는
+    // `withoutDirectoryOption`이 프로젝트 루트 안으로 강제한다.
+    // **`--force`는 받지 않는다.** 그것은 이미 있는 마커를 덮어쓰는데, 스크립트 자신이
+    // "사람이 손으로 적은 내용이 있을 수 있다"고 적어뒀다. 덮어쓰기는 사람이 직접 한다 —
+    // 에이전트에게 여는 것은 **없으면 만든다**까지다.
+    // `--project-root`를 **요구한다.** 문서(`web-orchestrator/SKILL.md`·`provenance-contract.md`)는
+    // 항상 붙이고, 생략형은 cwd(=컨트롤 플레인 저장소일 수 있다)에 `_workspace/`를 만든다 —
+    // 문서가 부르지 않는 형태를 여는 것은 계약보다 넓다.
+    const commandArgs = withoutDirectoryOption(args, '--project-root', context)
+    return args.includes('--project-root') && commandArgs.length === 0
+  }
   if (script === '.claude/scripts/validate-wiring-coverage.mjs') {
     // 저장소 자신을 훑는 읽기 전용 감사 — 인자는 --json뿐이다.
     return args.length === 0 || (args.length === 1 && args[0] === '--json')
@@ -766,9 +785,26 @@ const validationScriptContract = (script, args, context) => {
   }
   if (script === '.claude/scripts/validate-handoff-readiness.mjs') {
     const commandArgs = withoutDirectoryOption(args, '--project', context)
-    if (!args.includes('--project') || !args.includes('--to')) return false
+    if (!args.includes('--project')) return false
+    // `--design-debt`는 판정이 아니라 **읽기 전용 보고**다(exit 0 고정). 등록하지 않으면
+    // 오케스트레이터 경로에서 DENY로 막히고, 저자는 메인 스레드라 그것을 못 본다 —
+    // 이 저장소가 이미 두 번 물린 클래스(wiring-coverage의 `unregistered`).
+    if (commandArgs.includes('--design-debt')) {
+      const rest = commandArgs.filter(arg => arg !== '--design-debt' && arg !== '--json')
+      return rest.length === 0
+    }
+    // `--motion-role`도 판정이 아니라 읽기 전용 보고다(exit 0 고정). 계약에 적기 전에
+    // 등록한다 — 순서를 뒤집으면 세 번 물린 그 자리로 돌아간다.
+    if (commandArgs.includes('--motion-role')) {
+      const rest = commandArgs.filter(arg => arg !== '--motion-role' && arg !== '--json')
+      return rest.length === 0
+    }
+    if (!args.includes('--to')) return false
     const toIndex = commandArgs.indexOf('--to')
-    if (toIndex === -1 || !['development'].includes(commandArgs[toIndex + 1] ?? '')) return false
+    // `design`은 Phase 1 → 2 체크포인트가 부른다(`approval-checkpoints.md`). 계약에 명령을
+    // 적고 정책에 등록하지 않으면 에이전트 경로에서 DENY로 막히는데 **저자는 메인 스레드라
+    // 그것이 안 보인다** — 이 저장소가 세 번째로 물린 클래스다(2026-09-08 자체 실측).
+    if (toIndex === -1 || !['development', 'design'].includes(commandArgs[toIndex + 1] ?? '')) return false
     const rest = [...commandArgs.slice(0, toIndex), ...commandArgs.slice(toIndex + 2)]
     return rest.every(arg => arg === '--json') && rest.length === new Set(rest).size
   }

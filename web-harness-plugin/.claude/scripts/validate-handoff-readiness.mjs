@@ -28,6 +28,8 @@ import {claimScopeReadiness, findPathCollisions} from './ticket/claim-scope.mjs'
 import {extractDecisionBlock} from './spec.mjs'
 import {checkDecisionsApplied} from './validate-development-readiness.mjs'
 import {readSpecAt} from './validate-spawn-plan.mjs'
+import {hasUserInterface} from './spec.mjs'
+import {DESIGN_BINDING_PATH, collectDesignBinding, conditionKey, conditionLabel} from './design-binding-lib.mjs'
 import {checkShapeEvidence} from './validate-spec-conformance.mjs'
 
 const ok = (id, detail) => ({id, state: 'PASS', detail})
@@ -130,9 +132,12 @@ export function checkSpecReady(root) {
 //
 // **한계(정직)**: 헤딩 존재만 본다 — 내용이 채워졌는지는 못 본다. 그 판정은 사람의 승인
 // 몫이고, 이 검사는 **없는 것을 없다고 말하는 것**까지다(§4 등록).
+// 앵커는 **파서와 같은 언어 집합**이어야 한다. 종전에는 이 검사가 한국어 헤딩만 인정하고
+// 파서는 영어도 받아, 영어로 산출하는 생산자 템플릿의 정상 출력이 여기서 먼저 막혔다
+// (교차 모델 리뷰 2026-09-04). 두 판정이 어긋나면 어느 쪽이 진실인지 아무도 모른다.
 const REQUIRED_PLAN_SECTIONS = [
-  {file: '_workspace/01_plan/ux-brief', heading: '화면별 정보 위계', why: '레이아웃을 정할 근거'},
-  {file: '_workspace/01_plan/ux-brief', heading: '디자인 방향', why: '시각 위계를 정할 근거'},
+  {file: '_workspace/01_plan/ux-brief', anchor: /(?:^|\n)#{1,6}[^\S\n]*(?:화면별 정보 위계|Information hierarchy)/i, heading: '화면별 정보 위계', why: '레이아웃을 정할 근거'},
+  {file: '_workspace/01_plan/ux-brief', anchor: /(?:^|\n)#{1,6}[^\S\n]*(?:디자인 방향|Design direction)/i, heading: '디자인 방향', why: '시각 위계를 정할 근거'},
 ]
 
 const readPlanArtifact = (root, base) => {
@@ -144,16 +149,764 @@ const readPlanArtifact = (root, base) => {
     .map(n => readFileSync(join(dir, n), 'utf8')).join('\n')
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 공급물의 소비 대조 — 받았다는 기록과 썼다는 기록을 맞춘다
+//
+// `supplied`는 자기보고였다. `00_source/`에 인벤토리를 남기고도 그 내용이 정규화 산출물에
+// 실제로 반영됐는지는 아무도 대조하지 않았고, `PLAN_SOURCE: supplied`가 완료 보고에 사실처럼
+// 실렸다(`provenance-contract.md` §2 「`supplied`의 한계」가 그렇게 적는다).
+//
+// 대조 가능하려면 인벤토리가 기계가 읽는 형식이어야 한다. 실측(2026-09-08)에서 두 프로브의
+// `source-index.md`는 **형식이 서로 완전히 달랐다**(가로 인벤토리 표 / 세로 key-value 표) —
+// 계약이 「기록한다」까지만 정하고 형태를 고정하지 않았기 때문이다.
+const SOURCE_INDEX = '_workspace/00_source/source-index.md'
+const CONSUMED_HEADER = /^(소비 지점|consumed by)$/i
+const SNAPSHOT_HEADER = /^(스냅샷 경로|스냅샷|snapshot)$/i
+const CONSUMED_NONE = /^없음\s*\(/
+
+// 인벤토리 행이 가리키는 산출물은 flat(`x.md`)일 수도 분할(`x/`)일 수도 있다 —
+// `readPlanArtifact`와 같은 규율이다(`artifact-sharding-contract.md`).
+const readWorkspaceArtifact = (root, rel) => {
+  const clean = rel.replace(/^\.?\/*/, '').replace(/^_workspace\//, '')
+  const flat = join(root, '_workspace', clean.endsWith('.md') ? clean : `${clean}.md`)
+  if (existsSync(flat) && statSync(flat).isFile()) return readFileSync(flat, 'utf8')
+  const dir = join(root, '_workspace', clean.replace(/\.md$/, ''))
+  if (existsSync(dir) && statSync(dir).isDirectory()) {
+    return readdirSync(dir).filter(n => n.endsWith('.md')).sort()
+      .map(n => readFileSync(join(dir, n), 'utf8')).join('\n')
+  }
+  return null
+}
+
+export function parseSourceInventory(text) {
+  const lines = String(text ?? '').split('\n')
+  for (let i = 0; i < lines.length; i += 1) {
+    if (!lines[i].trim().startsWith('|')) continue
+    const headers = tableCells(lines[i])
+    const consumedAt = headers.findIndex(h => CONSUMED_HEADER.test(h))
+    if (consumedAt === -1) continue
+    const snapshotAt = headers.findIndex(h => SNAPSHOT_HEADER.test(h))
+    const rows = []
+    for (let j = i + 1; j < lines.length && lines[j].trim().startsWith('|'); j += 1) {
+      const cells = tableCells(lines[j])
+      if (isSeparatorRow(cells, headers.length)) continue
+      rows.push({
+        label: (cells[0] ?? '').replace(/`/g, '').trim() || `행 ${rows.length + 1}`,
+        consumed: (cells[consumedAt] ?? '').trim(),
+        snapshot: snapshotAt === -1 ? '' : (cells[snapshotAt] ?? '').trim(),
+      })
+    }
+    return {found: true, rows}
+  }
+  return {found: false, rows: []}
+}
+
+// 소비 지점 칸에서 산출물 경로만 뽑는다. 산문이 섞여도(`01_plan/requirements.md 3절`) 읽힌다.
+const consumedPaths = cell => [...String(cell).matchAll(/(?:_workspace\/)?(0[12]_[a-z]+\/[A-Za-z0-9_\-.]+)/g)]
+  .map(m => m[1].replace(/\.md$/, ''))
+
+export function checkSourceConsumption(root) {
+  const indexPath = join(root, SOURCE_INDEX)
+  if (!existsSync(indexPath)) {
+    return skip('source-consumption', '공급 원문 인벤토리가 없다 — 이 프로젝트는 공급 경로를 쓰지 않았다')
+  }
+  const inventory = parseSourceInventory(readFileSync(indexPath, 'utf8'))
+  if (!inventory.found) {
+    return hole('source-consumption', `${SOURCE_INDEX}에 「소비 지점」 열을 가진 인벤토리 표가 없다`,
+      'source-artifacts.md 「인벤토리 표」 형식으로 적는다 — 열이 없으면 무엇이 어디로 갔는지 기계가 읽지 못하고 공급원 라벨은 자기보고로 남는다')
+  }
+  if (inventory.rows.length === 0) {
+    return hole('source-consumption', `${SOURCE_INDEX}의 인벤토리 표에 행이 없다`,
+      '받은 원문을 행으로 적는다 — 표만 있고 행이 없으면 "받은 것이 없다"와 "적지 않았다"를 구별할 수 없다')
+  }
+  const problems = []
+  let traced = 0
+  for (const row of inventory.rows) {
+    if (row.consumed === '') { problems.push(`${row.label}: 소비 지점 빈 칸`); continue }
+    if (CONSUMED_NONE.test(row.consumed)) continue   // `없음(사유)` — 받았으나 쓰지 않았다는 **결정**
+    const targets = consumedPaths(row.consumed)
+    if (targets.length === 0) { problems.push(`${row.label}: 소비 지점에 산출물 경로가 없다`); continue }
+    for (const target of targets) {
+      const text = readWorkspaceArtifact(root, target)
+      if (text === null) { problems.push(`${row.label} → ${target} 없음`); continue }
+      if (!/^#{2,3}\s*Source Trace/m.test(text)) { problems.push(`${row.label} → ${target}에 Source Trace 절이 없다`); continue }
+      // **역방향.** 산출물이 그 원문을 되짚는가. 스냅샷 파일명으로 맞춘다 — 경로 표기가
+      // 문서마다 달라도(`_workspace/00_source/…` vs `00_source/…`) 파일명은 같다.
+      const snapshotName = (row.snapshot.replace(/`/g, '').trim().split('/').pop() ?? '').trim()
+      if (snapshotName !== '' && !text.includes(snapshotName)) {
+        problems.push(`${row.label} → ${target}의 Source Trace가 ${snapshotName}을 되짚지 않는다`)
+        continue
+      }
+      traced += 1
+    }
+  }
+  if (problems.length > 0) {
+    return hole('source-consumption', `공급물 소비 대조 실패 ${problems.length}건: ${problems.join(' · ')}`,
+      '인벤토리의 각 원문이 어느 산출물로 갔는지 적고, 그 산출물의 Source Trace가 같은 스냅샷을 되짚게 한다. 쓰지 않았으면 `없음(사유)`로 **명시**한다 — 빈 칸은 결정이 아니라 미기록이다')
+  }
+  return ok('source-consumption', `공급 원문 ${inventory.rows.length}건이 산출물로 이어진다 · 양방향 대조 ${traced}건`)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 모션 역할 공백 — 반복 모션을 서술하면서 주기 토큰을 선언하지 않았는가
+//
+// 실측 근거(greenfield-pilot-2 부록 A-1): `component-spec`이 `duration-base`(200ms 인터랙션
+// 토큰)를 스켈레톤 shimmer의 **루프 주기**로 오처방했고, `design-reviewer`를 포함한 14종
+// verifier가 **전부 통과**시켰다. 사용자가 육안으로 잡았다 — 「틀린 스펙은 무사통과한다」의
+// 대표 사례다.
+//
+// **근인은 오용이 아니라 선언의 공백이다.** 잘 만들어진 토큰 집합에는 주기 토큰이 따로 있고
+// (`pulsePeriodMs: 1200` vs `enterMs: 200`), 없으면 구현자는 가장 가까운 duration을 빌린다.
+// 그래서 이 검사는 **선언 측만** 본다.
+//
+// **사용처 검사는 의식적으로 포기했다.** 「루프를 서술한 줄이 인용한 토큰의 역할」을 보려면
+// 줄 단위 키워드 매칭이 필요한데, 전 workspace 드라이런에서 토큰·ms를 같은 줄에 가진 4건이
+// **4건 모두 오탐**이었다(reduced-motion 행 2 · 토큰 선언 행 2). 정밀화하려면 맥락 규칙을
+// 계속 얹어야 하고 규칙마다 새 프록시가 생긴다 — 못 잡는 변종은 §4에 등록한다.
+const MOTION_ARTIFACTS = ['_workspace/02_design/design-system', '_workspace/02_design/component-spec']
+// 닫힌 어휘다. 다른 말로 쓰면 놓친다 — **과소 탐지이며 안전한 방향**이다(§4 등록).
+const LOOPING_MOTION = /skeleton|shimmer|spinner|pulse|펄스|무한\s*(?:반복|루프)|반복\s*애니|루프\s*애니|infinite|iteration\s*count/i
+// reduced-motion을 말하는 줄은 루프 **처방**이 아니라 그 반대다 — 드라이런에서 오탐 2건이 여기였다.
+const REDUCED_MOTION_LINE = /reduced-motion|prefers-reduced-motion|정지\s*점|정적|1회|한\s*번|once\b|one-shot|단발/i
+// 역할은 이름이 말한다. 값은 보지 않는다 — 주기의 적정 범위는 서비스마다 다르다(I3).
+const PERIOD_TOKEN = /\b[A-Za-z-]*(?:period|loop|cycle|interval|shimmer|spin|blink|breath|marquee|ticker)[A-Za-z-]*\b|주기/i
+// 토큰 선언 형태는 프로젝트마다 다르다 — TS 객체(`pulsePeriodMs: 1200,`), CSS 변수
+// (`--duration-loop`), 마크다운 표 행(`| pulsePeriodMs | 1200 |`), 산문 인용
+// (`` `duration-shimmer`(2000ms) ``). 전부 읽는다 — 한 형태만 읽으면 정직한 선언이
+// 형식 때문에 미선언으로 잡힌다(드라이런에서 실제로 그렇게 오탐이 났다).
+const MOTION_TOKEN_LINE = /\b\w*(?:Ms|ms)\b\s*[:=]|--duration|--motion|motionTokens|\bduration-[a-z][\w-]*|\d+\s*ms\b|\|\s*\d{2,5}\s*\|/i
+
+export function checkMotionRoleTokens(root) {
+  const texts = MOTION_ARTIFACTS
+    .map(base => ({base, text: readWorkspaceArtifact(root, base)}))
+    .filter(entry => entry.text !== null)
+  if (texts.length === 0) {
+    return skip('motion-role', '디자인 산출물이 없어 모션 역할을 볼 수 없다')
+  }
+  const looping = []
+  for (const {base, text} of texts) {
+    for (const line of text.split('\n')) {
+      if (!LOOPING_MOTION.test(line)) continue
+      if (REDUCED_MOTION_LINE.test(line)) continue
+      looping.push(`${base.split('/').pop()}: ${line.trim().slice(0, 70)}`)
+    }
+  }
+  if (looping.length === 0) {
+    return skip('motion-role', '반복 모션 서술이 없다 — 주기 토큰을 요구할 근거가 없다')
+  }
+  const joined = texts.map(entry => entry.text).join('\n')
+  const hasPeriodToken = joined.split('\n').some(line => PERIOD_TOKEN.test(line) && MOTION_TOKEN_LINE.test(line))
+  if (!hasPeriodToken) {
+    return hole('motion-role',
+      `반복 모션을 ${looping.length}곳에서 서술하는데 주기 역할 토큰이 없다 — ${looping[0]}`,
+      '`pulsePeriodMs`·`--duration-loop`처럼 **주기 역할이 이름에 드러나는** 모션 토큰을 design-system에 선언한다. 없으면 구현이 가장 가까운 인터랙션 토큰을 빌려 쓰고(실측: 200ms 인터랙션 토큰이 스켈레톤 루프 주기가 됐다) 스펙 대조 검증은 전 계층을 통과한다')
+  }
+  return ok('motion-role', `반복 모션 서술 ${looping.length}곳 · 주기 역할 토큰 선언됨`)
+}
+
 export function checkDesignInputs(root) {
   const missing = []
   for (const section of REQUIRED_PLAN_SECTIONS) {
     const text = readPlanArtifact(root, section.file)
     if (text === null) { missing.push(`${section.file} 없음`); continue }
-    if (!text.includes(section.heading)) missing.push(`${section.heading}(${section.why})`)
+    if (!section.anchor.test(text)) missing.push(`${section.heading}(${section.why})`)
   }
-  if (missing.length === 0) return ok('design-inputs', '디자인이 요구하는 기획 절이 전부 있다')
-  return hole('design-inputs', `디자인 입력 누락: ${missing.join(' · ')}`,
-    'design-readiness-contract.md의 필수 절을 채운다 — 없으면 디자인이 추론으로 메우고 그 추론이 개발까지 흘러간다')
+  if (missing.length > 0) {
+    return hole('design-inputs', `디자인 입력 누락: ${missing.join(' · ')}`,
+      'design-readiness-contract.md의 필수 절을 채운다 — 없으면 디자인이 추론으로 메우고 그 추론이 개발까지 흘러간다')
+  }
+  // 절이 있는 것과 채워진 것은 다르다. 종전에는 헤딩 존재만 봤고, 그래서 표를 만들고 상태
+  // 칸을 비워두면 통과했다 — 조건 분모가 0이면 커버리지도 0/0으로 서고, **조건을 안 적는
+  // 것이 통과하는 길**이 된다(protected-core §4 등록 항목의 부분 해소).
+  const table = parseInformationHierarchy(readPlanArtifact(root, '_workspace/01_plan/ux-brief'))
+  const groups = planSources(root).flatMap(parsePageGroups)
+  const problems = denominatorProblems(table, groups)
+  // 축 보고는 **판정에 들어가지 않는다** — 어느 상태든 detail에 덧붙기만 한다.
+  const axisNote = missingRequiredAxes(table)
+  const withNote = detail => (axisNote === null ? detail : `${detail} · ${axisNote}`)
+  if (problems.length > 0) {
+    return hole('design-inputs', withNote(problems.join(' · ')),
+      '내용을 적거나, 그 조건이 이 화면에 없으면 `해당 없음(사유)`로 **명시**한다. 조건 열의 헤더에는 축 접두를 붙인다(`state:empty`·`variant:권한 없음`) — 접두가 없으면 그 열은 서술로 읽혀 분모에서 빠지고, 커버리지가 조용히 default 하나로 줄어든다(design-readiness-contract §1)')
+  }
+  // **행 수를 화면 수로 세지 않는다.** 단일 라우트 다상태 앱은 한 화면에 행이 여럿이고
+  // (실측: `track`은 PAGE-001 하나에 상태 행 6개), 행 수로 세면 「화면 6개」라는 거짓을 낸다.
+  const screens = new Set(table.rows.map(row => resolvePageGroup(groups, row.key)).filter(Boolean))
+  return ok('design-inputs', withNote(
+    `디자인이 요구하는 기획 절이 전부 있다 · 화면 ${screens.size}개(위계 행 ${table.rows.length}개) · 조건 열 ${table.axes.length}개`))
+}
+
+// 필수 축이 **열로** 서 있는가. **막지 않는다 — 보고다.**
+//
+// 막으려다 되돌린 기록(2026-09-08 적대 리뷰): 코퍼스 전수(24개)에서 이 검사가 실제로 발화하는
+// 프로젝트는 둘뿐이고 그중 **하나가 오탐**이었다 — `nps-ingest-probe-2`는 계약 형식(`축:값`)을
+// 지켰는데 권한 부류를 `variant:인증단계`·`variant:자격`으로 쓴다(본인인증 서비스). 정규식을
+// `인증|자격`으로 넓히는 것은 경계를 옮길 뿐이다(다음은 `variant:guest`). 오탐이 하나라도
+// 있으면 막지 않는다는 이 저장소 규율대로 보고로 낮췄다.
+//
+// 「코퍼스 4/4 오탐 0」이라던 최초 주장은 **vacuous**였다 — 그 4개는 접두 없는 헤더라
+// `axes.length === 0`이고 이 검사는 그 경우 아무 말도 하지 않는다. 발화조차 하지 않았다.
+//
+// 실질 해소는 **프로젝트별 래칫**(분모가 이전 판정보다 줄면 잡는다)이며 이름 프록시가 아니다 —
+// 미구현이고 §4에 등록했다.
+//
+// `denominatorProblems`가 아니라 여기에 두는 이유는 따로다: 이것은 「기획 문서가 완결됐는가」이고
+// 공유 함수가 답하는 「선언된 조건에 근거가 있는가」와 다른 질문이다(실측: 공유 함수에 넣었더니
+// design-binding 회귀 20건이 분모 변화로 무너졌다).
+export function missingRequiredAxes(table) {
+  if (!table.present || table.rows.length === 0 || table.axes.length === 0) return []
+  const declared = table.axes.map(column => `${column.axis}:${column.value}`)
+  const missing = COMMON_AXES.filter(([, pattern]) => !declared.some(label => pattern.test(label)))
+  if (missing.length === 0) return null
+  return `상용 조건 축 ${missing.length}개가 열로 없다: ${missing.map(([name]) => name).join(', ')}`
+    + ' — 이 서비스에 그 부류가 없으면 정상이고, 있는데 빠졌으면 그 조건은 아무도 요구하지 않게 된다.'
+    + ' 있는데 이 화면들에 해당이 없는 경우라면 열을 두고 칸에 `해당 없음(사유)`를 적는다 (막지 않는다 — 판정은 사람 몫이다)'
+}
+
+// 분모 자체가 서 있는가. `design-inputs`와 `design-binding`이 **같은 함수**를 부른다 —
+// 판정을 복제하면 문구가 갈라지고, 같은 사실이 구멍 둘로 보고된다(적대 리뷰 2026-09-04).
+// 중복 보고는 호출부에서 막는다(`analyzeHandoffReadiness`가 design 인계에서만 design-inputs를
+// 세우고, 개발 인계에서는 design-binding이 든다).
+export function denominatorProblems(table, groups = []) {
+  // 절을 **헤딩으로** 찾지 못한 것도 분모 부재다. 필수 절 검사는 `includes`라 산문에 그
+  // 문구만 있어도 통과하는데, 파서는 헤딩을 요구한다 — 두 판정이 어긋나면 표가 전혀 없는
+  // 문서가 통과한다(교차 모델 리뷰 2026-09-04).
+  if (!table.present) return ['「화면별 정보 위계」를 헤딩으로 찾지 못했다 — 산문에 문구만 있으면 조건 분모가 서지 않는다']
+  const problems = []
+  if (table.malformed) {
+    problems.push('정보 위계 표에 구분선(`|---|`)이 없다 — 마크다운 표가 아니면 헤더가 데이터 행으로 읽혀 판정이 통째로 어긋난다')
+  } else if (table.rows.length === 0) {
+    problems.push('정보 위계 절에 표가 없다 — 헤딩만 있으면 조건 분모가 서지 않는다')
+  }
+  if (table.blanks.length > 0) {
+    problems.push(`정보 위계 표의 빈 칸 ${table.blanks.length}건: ${table.blanks.slice(0, 6).join(', ')} — 빈 칸은 결정이 아니라 미결이고, 그 자리는 조건 분모에서 빠진다`)
+  }
+  // 형 없는 열은 **유효한 축이 함께 있어도** 보고한다. `state:empty` 하나만 형을 붙이고
+  // 나머지를 그대로 두면 그 나머지가 분모에서 빠지던 자리다(교차 모델 리뷰 2026-09-04).
+  if (table.untypedHeaders.length > 0) {
+    const hint = table.untypedHeaders.filter(header => LEGACY_CONDITION_HEADER.test(header))
+    problems.push(`형이 없는 열 ${table.untypedHeaders.length}개: ${table.untypedHeaders.slice(0, 6).join(', ')} — 조건이면 \`state:empty\`·\`variant:권한 없음\`, 서술이면 \`info:밀도\` 형식으로 적는다. 형이 없으면 조건인지 서술인지 알 수 없어 분모에서 빠진다`
+      + (hint.length > 0 ? ` (조건으로 보이는 것: ${hint.slice(0, 4).join(', ')})` : ''))
+  }
+  if (table.rows.length > 0 && table.axes.length === 0 && table.untypedHeaders.length === 0) {
+    problems.push('조건 열이 하나도 없다 — 화면마다 기본 조건 하나만 분모에 서고, 권한 없음·빈 상태는 아무도 요구하지 않게 된다')
+  }
+  // 기본 조건(`state:default`)을 요구하는 근거는 Primary·Secondary 서술이다. 그 열이 없으면
+  // 서술하지 않은 것을 서술했다고 가정하는 셈이고, 정보 위계가 비어 있는 문서가 통과한다
+  // (교차 모델 리뷰 2026-09-04).
+  if (table.rows.length > 0 && table.infoHeaders.length === 0) {
+    problems.push('서술 열(`info:`)이 하나도 없다 — Primary·Secondary가 없으면 기본 조건을 무엇으로 서술했다고 볼 근거가 없다')
+  }
+  // 행이 어느 화면의 것인지 여기서 판정한다. 종전에는 바인딩 문서가 있을 때만 봤는데,
+  // 그러면 디자인 근거가 붙기 전에는 해소되지 않는 행이 조용히 통과했다 — 계약이 loud라고
+  // 적어둔 자리다(교차 모델 리뷰 2026-09-04).
+  // Page Groups가 없으면 **판정을 생략하지 않고 그 사실을 올린다.** 종전에는 조용히
+  // 넘겼는데, 그러면 Page Groups만 빠뜨리는 것으로 조건 커버리지 전체를 끌 수 있었다
+  // (교차 모델 리뷰 2026-09-04). 못 재는 것과 잴 것이 없는 것은 다르고, 못 재면 말한다.
+  if (groups.length === 0) {
+    return [...problems, 'Page Groups 표를 읽지 못했다 — 정보 위계 행이 어느 화면인지 해소할 수 없어 조건 커버리지를 잴 수 없다']
+  }
+  const unresolved = table.rows.map(row => row.key).filter(key => resolvePageGroup(groups, key) === null)
+  if (unresolved.length > 0) {
+    problems.push(`Page Groups로 해소되지 않는 정보 위계 행 ${unresolved.length}건: ${unresolved.slice(0, 6).join(', ')} — 첫 열은 PAGE-NNN이거나 Page Groups의 Page·Route/Screen과 정확히 같아야 한다`)
+  }
+  // 반대 방향도 본다. 한쪽만 보면 **행을 통째로 빼는 것**이 분모를 줄이는 길이 된다 —
+  // PAGE-002를 선언해놓고 정보 위계에 적지 않으면 그 화면의 조건이 아무도 요구하지 않는
+  // 상태가 됐다(교차 모델 리뷰 2026-09-04, 유령 화면 대조와 같은 클래스).
+  const described = new Set(table.rows.map(row => resolvePageGroup(groups, row.key)))
+  const undescribed = groups.map(row => row.id).filter(id => id !== 'PAGE-000' && !described.has(id))
+  if (undescribed.length > 0) {
+    problems.push(`정보 위계 행이 없는 화면 ${undescribed.length}건: ${[...new Set(undescribed)].slice(0, 6).join(', ')} — 표에 없는 화면은 조건 분모가 서지 않아 권한 없음·빈 상태를 아무도 요구하지 않게 된다`)
+  }
+  return problems
+}
+
+// 정보 위계 행의 첫 열을 PAGE-NNN으로 해소한다 — ID 자체이거나, Page Groups의
+// `Page`·`Route/Screen`과 정확히 일치하는 이름이다.
+// **선행 ID 토큰을 허용한다.** `PAGE-001 세미나 목록`처럼 ID 뒤에 라벨을 덧붙이는 것은
+// 사람이 읽기 좋으라고 하는 정상 표기이고, 실측(2026-09-08 프로브)에서 계약을 따라 돈
+// ingestor가 정확히 그 형태를 냈다. 종전 판정은 그 행을 통째로 미해소로 잡아 **분모 6/6이
+// 붕괴**했다 — 잘 쓴 기획서가 "분모 없음"이 되는 최악의 실패 모드다. ID가 앞에 있으면
+// 어느 화면인지 모호하지 않으므로 이것은 완화가 아니라 **오탐 제거**다(I2: 느슨해지는 축이
+// 없다 — ID는 여전히 필수이고, ID도 라벨도 못 맞추는 행은 그대로 미해소다).
+const LEADING_PAGE_ID = /^(PAGE-\d{3,})\b/i
+const resolvePageGroup = (groups, key) => {
+  const leading = LEADING_PAGE_ID.exec(String(key ?? ''))?.[1]?.toUpperCase()
+  return groups.find(row =>
+    row.id === key || row.id === leading || normalizeKey(row.page) === key || normalizeKey(row.route) === key)?.id ?? null
+}
+
+// ── 조건의 분모 — ux-brief 「화면별 정보 위계」 표 ───────────────────────────
+// 하나의 화면은 조건에 따라 여러 디자인을 갖는다. 그 조건 목록의 정본이 이 표이며
+// (`design-readiness-contract.md` §1), `design-binding`이 이것을 분모로 커버리지를 판정한다.
+//
+// 조건 열은 헤더가 `축:값`이다(`state:empty`·`variant:권한 없음`). 접두 없는 열은 서술이다.
+// `state:default`는 열로 두지 않는다 — Primary·Secondary가 그것을 서술하므로 표에 오른 모든
+// 화면이 기본 조건을 갖는 것으로 본다.
+//
+// **한계(정직)**: 절 앵커가 한국어·영어 헤딩 문자열이라 다른 언어로 옮기면 발화하지 않는다
+// (산문 간선 대조와 같은 클래스, protected-core §4).
+const HIERARCHY_SECTION = /(?:^|\n)#{1,6}[^\S\n]*(?:화면별 정보 위계|Information hierarchy)[^\n]*\n([\s\S]*?)(?=\n#{1,6}[^\S\n]|$)/gi
+// 표의 열은 **전부 형이 붙는다** — 조건은 `state|modeId|variant`, 서술은 `info`.
+// 종전에는 접두 없는 열을 키워드 휴리스틱으로 골라냈는데, 그것은 완전할 수 없다:
+// `무료 플랜 시` 같은 임의의 variant 조건이 목록에 없으면 조용히 서술로 버려졌다
+// (교차 모델 리뷰 2026-09-04). 형을 전부 요구하면 판정이 **전역 함수**가 된다 — 형이 없는
+// 열은 조건인지 서술인지 하네스가 알 수 없고, 알 수 없는 것을 통과시키지 않는다.
+const COLUMN_HEADER = /^(state|modeId|variant|info)[^\S\n]*:[^\S\n]*(.+)$/
+const CONDITION_AXES = ['state', 'modeId', 'variant']
+// `\b`를 쓰지 않는다 — 한글은 JS 정규식에서 비단어 문자라 `없음(` 사이에 경계가 서지 않고
+// `해당 없음(사유)`가 통째로 안 잡혔다(자체 실측). 경계가 필요한 것은 라틴 표기뿐이다.
+// 어휘는 실제 코퍼스에 맞춰 넓혔다 — `비적용`·`—`를 이미 쓰고 있었다(적대 리뷰 2026-09-04
+// 실측 5개 워크스페이스). **어휘 결박은 남는다**: 목록 밖 낱말로 적으면 조건이 있는 것으로
+// 세어져 근거를 요구한다(protected-core §4 등록).
+// **칸 전체**가 N/A 표기여야 한다. 접두만 보면 `해당 없음 안내와 문의 CTA` 같은 실제 화면
+// 내용이 N/A로 오인돼 그 조건이 분모에서 빠진다 — 조건 분모 축소가 다시 열리는 자리다
+// (교차 모델 리뷰 2026-09-04). 괄호 안 사유는 계약이 요구하는 형식이므로 함께 받는다.
+const NOT_APPLICABLE = /^(?:(?:해당\s*없음|비적용|not\s*applicable|n\/a)\s*(?:[(（][^)）]*[)）])?|[-—–]+)$/i
+// 형 없는 열이 조건이었을 가능성을 **문구로만** 쓴다(판정이 아니라 안내). 실측 5/5
+// 워크스페이스가 종전 형식이었으므로 이행 대상을 이름으로 짚어준다.
+// **상용 조건 축.** 실측에서 자주 나오는 셋이다 — 빈 상태·오류·권한. **필수가 아니다**:
+// 코퍼스 전수에서 계약 형식을 지키고도 다른 부류를 쓰는 프로젝트가 나왔다(아래 참조). 그런데 게이트는 「조건 열이 하나도 없다」만
+// 막았고, **축 하나만 남기고 나머지를 지우면 READY**였다(D3·D5 실측: 3개→2개→1개 전부 통과).
+// 분모가 조용히 줄어드는 것을 막는 것이 이 계약의 존재 이유인데 그 자리가 비어 있었다.
+// 해당이 없는 화면은 열을 지우는 게 아니라 칸에 `해당 없음(사유)`를 적는다 — 계약이 이미
+// 그렇게 말하고, 실측에서 `track`이 권한 축 전 칸을 `N/A(계정 없음)`로 채워 그 형태를 보였다.
+const COMMON_AXES = [
+  ['빈 상태', /empty|빈\s*상태|비어/i],
+  ['오류', /error|오류|실패/i],
+  ['권한', /권한|permission|role|auth/i],
+]
+const LEGACY_CONDITION_HEADER = /(?:empty|error|권한|permission|모바일|mobile|다크|dark|상태|state|시 내용|플랜|역할|role|plan)/i
+const tableCells = line => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(cell => cell.trim())
+// Page Groups의 Route는 관행상 백틱으로 감싸 적는다(`` `/sessions` ``). 정규화하지 않으면
+// 정보 위계 행이 정당한데도 해소되지 않는다(적대 리뷰 2026-09-04, 실측).
+const normalizeKey = value => String(value ?? '').replace(/`/g, '').trim()
+const isSeparatorRow = (cells, columns) => cells.length === columns && cells.every(cell => /^:?-{2,}:?$/.test(cell))
+
+// `ux-brief`는 sharding을 지원하고 `readPlanArtifact`가 shard를 이어 붙인다. 절을 **하나만**
+// 읽으면 두 번째 shard 이후의 화면이 통째로 검사에서 빠진다 — 나눠 적는 것이 게이트를 끄는
+// 길이 된다(교차 모델 리뷰 2026-09-04). 그래서 모든 절을 읽어 합친다.
+export function parseInformationHierarchy(text) {
+  const empty = {present: false, malformed: false, rows: [], axes: [], infoHeaders: [], blanks: [], untypedHeaders: []}
+  const sections = [...String(text ?? '').matchAll(HIERARCHY_SECTION)]
+  if (sections.length === 0) return empty
+  const parsed = sections.map(section => parseHierarchySection(section[1]))
+  // 열은 절의 **합집합**이고, 그 합집합을 **모든 행에 적용한다** — 조건 열이든 서술 열이든
+  // 같다. 절마다 따로 보면 한 절에 화면 행을 몰아넣고 다른 절에 데이터 없는 열만 두는 것으로
+  // 분모를 비울 수 있었다(교차 모델 리뷰 2026-09-04, 조건 열에서 한 번·서술 열에서 한 번).
+  // 어떤 절이든 열을 선언했으면 모든 화면이 그것에 답한다 — 해당하지 않으면 `해당 없음(사유)`로.
+  const columns = [...new Map(parsed.flatMap(part => part.columns).map(column => [`${column.axis}:${column.value}`, column])).values()]
+  const rows = parsed.flatMap(part => part.rows)
+  const blanks = parsed.flatMap(part => part.blanks)
+  for (const row of rows) {
+    for (const column of columns) {
+      if (!row.addressed.has(`${column.axis}:${column.value}`)) blanks.push(`${row.key}/${column.label}`)
+    }
+  }
+  return {
+    present: true,
+    malformed: parsed.some(part => part.malformed),
+    rows,
+    axes: columns.filter(column => CONDITION_AXES.includes(column.axis)),
+    infoHeaders: columns.filter(column => column.axis === 'info').map(column => column.label),
+    untypedHeaders: [...new Set(parsed.flatMap(part => part.untypedHeaders))],
+    blanks: [...new Set(blanks)].sort(),
+  }
+}
+
+function parseHierarchySection(body) {
+  const empty = {malformed: false, rows: [], columns: [], blanks: [], untypedHeaders: []}
+  const lines = body.split('\n').filter(line => line.trim().startsWith('|'))
+  // 절이 있는데 표가 없다. 이것을 `{rows: []}`로 조용히 돌려주면 **헤딩만 쓰면 통과**가 된다 —
+  // 빈 칸 우회를 닫으면서 그 옆에 같은 우회를 열어두는 셈이다(적대 리뷰 2026-09-04).
+  if (lines.length < 2) return empty
+  // 구분선을 **요구한다.** 없으면 마크다운 표가 아니고, 표가 아닌 것을 표로 읽으면 헤더가
+  // 데이터 행이 되어 판정이 통째로 어긋난다(교차 모델 리뷰 2026-09-04).
+  if (!isSeparatorRow(tableCells(lines[1]), tableCells(lines[0]).length)) return {...empty, malformed: true}
+  const headers = tableCells(lines[0])
+  // 조건 열의 위치와 조건 값. 접두 없는 열은 서술이므로 분모에 들어가지 않는다.
+  const typed = headers.map((header, index) => {
+    const match = index === 0 ? null : header.match(COLUMN_HEADER)
+    return match === null ? null : {index, axis: match[1], value: match[2].trim(), label: header}
+  })
+  const columns = typed.filter(column => column !== null)
+  const axes = columns.filter(column => CONDITION_AXES.includes(column.axis))
+  // 형이 없는 열. 조건인지 서술인지 알 수 없으므로 **전부** 이름을 들고 나온다 — 어느 것이
+  // 조건이었는지 고르는 것은 사람이고, 하네스가 골라주면 그 고름이 곧 프록시다.
+  const untypedHeaders = headers.filter((header, index) => index !== 0 && typed[index] === null)
+  const rows = []
+  const blanks = []
+  // 0번은 헤더, 1번은 구분선(`|---|`). 데이터는 2번부터다.
+  for (const line of lines.slice(1)) {
+    const cells = tableCells(line)
+    if (isSeparatorRow(cells, headers.length)) continue
+    // **인용을 걷어낸 뒤 해소한다.** 이름 칸에 `(ack:PC-011)`을 적는 것이 계약이 요구하는 형태인데
+    // 그대로 해소하면 Page Groups와 안 맞아 그 행이 통째로 미해소가 된다 — 계약을 따르는 것이
+    // 곧 실패가 되는 자리다(자체 실측 2026-09-04).
+    const key = normalizeKey(stripAcknowledgements(cells[0] ?? ''))
+    if (!key) { blanks.push('<이름 없는 행>'); continue }
+    // **헤더 수를 기준으로 돈다.** `cells`만 순회하면 뒤쪽 칸을 아예 생략한 짧은 행에서
+    // 그 칸들이 검사 대상에서 빠진다 — 빈 칸을 미결로 잡겠다고 해놓고 가장 흔한 형태의
+    // 빈 칸을 놓치는 자리였다(교차 모델 리뷰 2026-09-04).
+    const conditions = []
+    // 이 행이 **답한** 조건. 합침 단계에서 다른 절의 조건까지 요구하려면 무엇에 답했는지를
+    // 알아야 한다 — 빈 칸이면 답한 것이 아니다.
+    const addressed = new Set()
+    // 인수 토큰(`ack:<ID>`). **접두를 박지 않는다** — 어느 체계인지는 결정 로그가 스스로
+    // 선언하고(`declaredDecisions`) 여기서는 형태만 걷어 위에서 대조한다(`PC`·`D` 양쪽 성립).
+    // 조건 칸의 토큰은 그 조건, 그 밖(이름 칸·서술 칸)의 토큰은 그 행 전체를 가리킨다.
+    const cellDecisions = new Map()
+    const rowDecisions = new Set()
+    for (const id of citedAcknowledgements(cells[0])) rowDecisions.add(id)
+    for (const [index, header] of headers.entries()) {
+      if (index === 0) continue
+      const cell = cells[index] ?? ''
+      const column = columns.find(candidate => candidate.index === index)
+      const cited = citedAcknowledgements(cell)
+      if (column !== undefined && CONDITION_AXES.includes(column.axis)) {
+        if (cited.length > 0) cellDecisions.set(`${column.axis}:${column.value}`, cited)
+      } else {
+        for (const id of cited) rowDecisions.add(id)
+      }
+      if (cell === '') { blanks.push(`${key}/${column?.label ?? header}`); continue }
+      if (column === undefined) continue
+      addressed.add(`${column.axis}:${column.value}`)
+      if (!CONDITION_AXES.includes(column.axis) || NOT_APPLICABLE.test(cell)) continue
+      conditions.push({[column.axis]: column.value})
+    }
+    rows.push({key, conditions, addressed, cellDecisions, rowDecisions: [...rowDecisions]})
+  }
+  return {malformed: false, rows, columns, untypedHeaders, blanks: [...new Set(blanks)].sort()}
+}
+
+// Page Groups 표의 행. 정보 위계 표의 첫 열을 PAGE-NNN으로 해소하는 데 쓴다.
+export function parsePageGroups(text) {
+  const rows = []
+  for (const section of String(text ?? '').matchAll(/(?:^|\n)#{1,6}[^\S\n]*Page Groups[^\n]*\n([\s\S]*?)(?=\n#{1,6}[^\S\n]|$)/gi)) {
+    for (const line of section[1].split('\n').filter(line => line.trim().startsWith('|'))) {
+      const cells = tableCells(line)
+      if (/^PAGE-\d{3,}$/.test(cells[0] ?? '')) rows.push({id: cells[0], page: cells[1] ?? '', route: cells[2] ?? ''})
+    }
+  }
+  return rows
+}
+
+// 선언된 Page Group 집합. 정본은 `## Page Groups` **표**이지 산문의 언급이 아니다
+// (design-readiness-contract §3). 문서 전체에서 `PAGE-\d+`를 긁으면 FEAT 설명이나 주석에
+// 한 번 적힌 이름이 선언으로 승격되고, 그 이름에 근거를 붙여 미바인딩 검사를 우회할 수 있다
+// (교차 모델 리뷰 2026-09-03). `PAGE-000`은 단일 페이지에 귀속되지 않는 전역 책임의 예약
+// ID이므로 화면 근거를 요구하지 않는다.
+export function pageGroupIdsIn(text) {
+  const ids = new Set(parsePageGroups(text).map(row => row.id))
+  ids.delete('PAGE-000')
+  return [...ids]
+}
+
+// ── 공급된 디자인 근거가 기획 단위에 붙었는가 ───────────────────────────────
+// 파일이 없는 것은 정상이다 — 디자인 `generated`·`absent` 경로에는 공급된 근거가 없다.
+// 있으면 묻는 것은 둘이다: (1) 기록 자체가 유효한가 (2) **미결이 남아 있지 않은가.**
+//
+// `unbound`는 "아직 정하지 않았다"는 뜻이고, 이 자리에서 메우는 비용이 디자인·구현 중에
+// 메우는 비용보다 싸다. 근거가 없다고 결정하는 것은 미결이 아니다 — 그때는 조건 행에
+// `resolution: derive|reuse:`를 적으면 되고, 그것으로 `unbound`에서 빠진다.
+//
+// 조건 커버리지 — 기획이 선언한 조건 중 디자인 근거가 없는 것.
+//
+// 1차 커밋에서는 **정보성 보고**였다. 분모인 정보 위계 표가 헤딩 존재만 검사돼 빈 칸이
+// 통과했고, 그 위에 게이트를 올리면 조건을 **안 적는 것이 통과하는 길**이 되기 때문이다(I5).
+// 이제 분모가 서므로 게이트로 올린다.
+//
+// 분모의 문제는 **한 검사만** 보고한다. `design-inputs`가 서는 인계에서는 그쪽이 맡고
+// (`reportDenominator: false`), 그것이 없는 개발 인계에서는 여기가 맡는다 — 같은 사실을 둘이
+// 각자 보고하면 사용자는 구멍이 둘이라고 읽는다. 어느 쪽이든 분모가 깨졌으면 커버리지는
+// 재지 않는다: 깨진 분모로 잰 숫자는 사실이 아니다.
+//
+// 절 자체의 부재도 같은 규칙이되, 보고를 아무도 안 하는 상태를 만들지 않는다. 개발 인계에서
+// 이것을 빈 배열로 돌려주면 **디자인 인계를 통과한 뒤 절을 지우는 것**이 우회가 된다 —
+// 개발 인계는 `design-inputs`를 다시 세우지 않기 때문이다(교차 모델 리뷰 2026-09-04).
+export function conditionCoverageProblems(root, document, {reportDenominator = true} = {}) {
+  const table = parseInformationHierarchy(readPlanArtifact(root, '_workspace/01_plan/ux-brief'))
+  const groups = planSources(root).flatMap(parsePageGroups)
+  const denominator = denominatorProblems(table, groups)
+  if (!reportDenominator) return denominator.length > 0 ? [] : coverageProblems(groups, table, document)
+  if (denominator.length > 0) return denominator
+  return coverageProblems(groups, table, document)
+}
+
+// 분모가 선 뒤의 실제 대조. 표의 각 행이 선언한 조건마다 바인딩 행이 있는가.
+function coverageProblems(groups, table, document) {
+  // Page Groups를 못 읽었으면 대조하지 않는다 — 없는 것과 못 읽은 것은 다르다.
+  if (table.rows.length === 0 || groups.length === 0) return []
+  const resolve = key => resolvePageGroup(groups, key)
+  const covered = new Map()
+  for (const binding of document.bindings) {
+    if (!covered.has(binding.pageGroup)) covered.set(binding.pageGroup, new Set())
+    covered.get(binding.pageGroup).add(conditionKey(binding.condition))
+  }
+  const problems = []
+  const uncovered = []
+  for (const row of table.rows) {
+    // 해소 실패는 `denominatorProblems`가 이미 보고했다 — 여기서 다시 세지 않는다.
+    const pageGroup = resolve(row.key)
+    if (pageGroup === null) continue
+    if (pageGroup === 'PAGE-000') continue
+    const have = covered.get(pageGroup) ?? new Set()
+    // Primary·Secondary가 기본 조건을 서술하므로 표에 오른 화면은 모두 그것을 요구한다.
+    for (const condition of [{state: 'default'}, ...row.conditions]) {
+      if (!have.has(conditionKey(condition))) uncovered.push(`${pageGroup}[${conditionLabel(condition)}]`)
+    }
+  }
+  if (uncovered.length > 0) {
+    problems.push(`기획이 선언했으나 디자인 근거가 없는 조건 ${uncovered.length}건: ${uncovered.slice(0, 6).join(', ')}`)
+  }
+  return problems
+}
+
+// ── 디자인 부채 — 개발 시점에 청구할 내용 ───────────────────────────────────
+// `DESIGN_SOURCE: absent`는 "디자인이 필요 없다"가 아니라 "지금 만들지 않는다"다. 그러면
+// 그 결정은 사라지는 것이 아니라 **구현하는 사람에게 넘어간다** — 실측(2026-09-04)에서
+// 디자인 부재는 인계 판정에 흔적을 남기지 않았고(양쪽 인계 READY, 판정 변화 0건), 그래서
+// 권한 없음·빈 상태 화면이 아무도 모르게 즉흥으로 결정됐다.
+//
+// 이 보고는 **막지 않는다.** 막으면 `absent`를 고를 수 없게 되고, 고를 수 없으면 사용자는
+// 우회로 돌아간다(`provenance-contract.md` §3이 존재하는 이유). 대신 개발이 실제로 그 화면에
+// 부딪히는 자리에서 **무엇이 미결인지 이름으로** 제시해 사람이 결정하게 한다.
+//
+// 분모는 디자인이 아니라 **기획**이 소유한다 — `ux-brief`의 「화면별 정보 위계」 표는
+// `PLAN_SOURCE`의 산출물이라 디자인이 없어도 선다. 디자인이 없을 때야말로 그 표가 조건의
+// 유일한 근거다.
+export function designDebtReport(root) {
+  const sources = planSources(root)
+  const table = parseInformationHierarchy(readPlanArtifact(root, '_workspace/01_plan/ux-brief'))
+  const groups = sources.flatMap(parsePageGroups)
+  const binding = collectDesignBinding(root)
+  const denominator = denominatorProblems(table, groups)
+  const declared = new Map()
+  // **문서는 아직 검증 전이다.** `binding-invalid` 판정보다 이 순회가 먼저 돌므로 여기서
+  // 형태를 가정하면 `"bindings":[null]` 같은 유효 JSON이 TypeError를 낸다 — 항상 exit 0을
+  // 약속한 보고가 비정상 종료한다(교차 모델 리뷰 2026-09-04). 읽을 수 있는 행만 읽는다.
+  for (const row of Array.isArray(binding.document?.bindings) ? binding.document.bindings : []) {
+    if (!row || typeof row !== 'object' || typeof row.pageGroup !== 'string') continue
+    if (!declared.has(row.pageGroup)) declared.set(row.pageGroup, new Map())
+    declared.get(row.pageGroup).set(conditionKey(row.condition),
+      Array.isArray(row.referenceIds) && row.referenceIds.length > 0 ? 'supplied' : (row.resolution ?? 'pending'))
+  }
+  // 인수 기록. **인용은 로그와 대조한 뒤에만 인수로 센다** — 없는 ID를 적어 미결을 지우는
+  // 것은 자기신고보다 나쁘다(파일에 거짓이 남는다). 어느 ID 체계인지는 로그가 선언한다.
+  const {ids: loggedDecisions} = declaredDecisions(readDecisionLog(root))
+  const screens = []
+  const dangling = []
+  for (const row of table.rows) {
+    const pageGroup = resolvePageGroup(groups, row.key)
+    if (pageGroup === null || pageGroup === 'PAGE-000') continue
+    const have = declared.get(pageGroup) ?? new Map()
+    const verify = (cited, label) => {
+      const known = cited.filter(id => loggedDecisions.has(id))
+      for (const id of cited) {
+        if (!loggedDecisions.has(id)) dangling.push({pageGroup, label, id})
+      }
+      return known[0] ?? null
+    }
+    const rowAck = verify(row.rowDecisions ?? [], null)
+    screens.push({
+      pageGroup,
+      conditions: [{state: 'default'}, ...row.conditions].map(condition => {
+        const label = conditionLabel(condition)
+        // 근거는 두 층이다. 바인딩 행이 있으면 그것이 근거고, 없어도 정보 위계 표에 **내용**이
+        // 있으면 구현이 무엇을 보여줄지는 안다 — 모르는 것은 그것을 **어떻게 그리는가**뿐이다.
+        // 이 둘을 한 낱말로 부르면 청구서가 과장된다(적대 리뷰 2026-09-04): 표가 다 채워진
+        // 프로젝트에 "무엇으로 그릴지 정해진 바가 없다"고 말하게 된다.
+        const basis = have.get(conditionKey(condition)) ?? 'plan'
+        const cellAck = verify(row.cellDecisions?.get(`${Object.keys(condition)[0]}:${Object.values(condition)[0]}`) ?? [], label)
+        return {condition, label, basis, acknowledgedBy: cellAck ?? rowAck}
+      }),
+    })
+  }
+  const pick = (...values) => screens.flatMap(screen =>
+    screen.conditions.filter(item => values.includes(item.basis) && item.acknowledgedBy === null)
+      .map(item => ({pageGroup: screen.pageGroup, label: item.label, basis: item.basis})))
+  const acknowledged = screens.flatMap(screen =>
+    // **부채였던 것만 센다.** `derive`·`reuse:*`는 이미 결정된 조건이라 인수 대상이 아니다.
+    screen.conditions.filter(item => ['plan', 'pending'].includes(item.basis) && item.acknowledgedBy !== null)
+      .map(item => ({pageGroup: screen.pageGroup, label: item.label, acknowledgedBy: item.acknowledgedBy})))
+  return {
+    schemaVersion: 1,
+    // **"기획이 없다"를 "화면이 없다"로 말하지 않는다.** 둘을 한 분기로 뭉개면 부채가 최대인
+    // 상태(기획·디자인 둘 다 absent, 브라운필드 첫 작업)에서 "청구할 것이 없다"가 나온다 —
+    // 이 저장소가 Page Groups 부재에서 이미 닫은 클래스가 보고에서 다시 열린 것이었다
+    // (적대 리뷰 2026-09-04, 실제 트리 2곳에서 재현).
+    status: designDebtStatus({root, sources, table, groups, denominator, screens, binding}),
+    bindingPresent: binding.present,
+    // 공급원 선언. `null`은 **모른다**이지 `generated`가 아니다 — 마커가 없으면 단정하지 않는다.
+    designSource: declaredDesignSource(root),
+    denominatorProblems: denominator,
+    bindingProblems: binding.errors,
+    screens,
+    deferred: pick('pending'),
+    planOnly: pick('plan'),
+    // 인수된 미결 — 시각 근거는 없고 **결정만 있다**. 인용된 ID가 결정 로그에 실재할 때만
+    // 여기 들어온다(파일 대조). 이것이 자기신고를 파일 대조로 바꾸는 자리다.
+    acknowledged,
+    // 한 결정이 몇 조건을 인수했는가. **값을 검사하지 않고 낼 수 있는 정직한 신호**다 —
+    // 결정 하나로 전건을 인수하는 것은 허용 형태이지만(범위 없는 인수), 그 사실이 숫자로
+    // 보이면 사람이 판단할 수 있다(적대 리뷰 2026-09-04).
+    acknowledgementFanOut: Object.fromEntries(
+      [...acknowledged.reduce((counts, item) =>
+        counts.set(item.acknowledgedBy, (counts.get(item.acknowledgedBy) ?? 0) + 1), new Map())]),
+    // 실재하지 않는 결정을 인용해 미결을 지운 자리. **인수보다 나쁘다** — 파일에 거짓이 남는다.
+    danglingCitations: dangling,
+  }
+}
+
+// 스팩이 화면을 기대하는가. 형태 카탈로그가 아는 형태면 `userInterface`가 답하고, **모르는
+// 형태면 `testLayers.e2e`가 답한다** — `spec.mjs`가 미등록 형태에 대해 "경로를 적거나
+// `(absent — 이유)`로 명시하라"고 이미 요구하고 있기 때문이다(`E2E_TEST_LAYER_UNDECIDED`).
+// 그 선언을 안 보고 Page Groups로 넘어가면, 미등록 UI 형태가 PAGE-000뿐일 때 불완전한 기획이
+// "화면 없음"으로 통과한다(교차 모델 리뷰 2026-09-04).
+// 디자인 단계가 산출물을 냈는가. flat·sharded 두 형태를 본다.
+const DESIGN_ARTIFACTS = ['design-system', 'layout-spec', 'component-spec']
+const hasDesignArtifacts = root => DESIGN_ARTIFACTS.some(name => {
+  const base = join(root, '_workspace/02_design', name)
+  return (existsSync(`${base}.md`) && statSync(`${base}.md`).isFile()) ||
+    (existsSync(base) && statSync(base).isDirectory())
+})
+
+// 디자인이 **공급**됐는가. 마커(`provenance-contract.md` §5)가 있으면 그것이 정본이고,
+// 없으면 `00_source/` 인벤토리의 존재로 판정한다 — 마커는 어떤 validator도 검사하지 않아
+// 없을 수 있지만(§5 한계), ingestor는 공급 경로에서 반드시 인벤토리를 남긴다.
+// 판정 불가는 `null`이다. **`00_source/source-index.md`의 존재를 신호로 쓰지 않는다** —
+// 그 인벤토리는 기획·API·설계 공급에도 생기며, 실제로 기획만 공급받고 디자인은 생성한
+// 프로젝트가 존재한다(교차 모델 리뷰 2026-09-04, `workspace/minicar-laptime` 실측).
+// 그것으로 공급을 단정하면 정상 프로젝트에 없는 귀속 기록을 요구하게 된다.
+const declaredDesignSource = root => {
+  const marker = join(root, '_workspace/web-harness.md')
+  if (!existsSync(marker) || !statSync(marker).isFile()) return null
+  const declared = readFileSync(marker, 'utf8').match(/DESIGN_SOURCE\s*:\s*(generated|supplied|absent)/i)
+  return declared ? declared[1].toLowerCase() : null
+}
+
+// 결정 ID의 **형태**만 안다. 어느 접두가 유효한지는 결정 로그가 선언한다(`declaredDecisions`).
+// 인수는 **명시 토큰**으로만 표시한다: `ack:PC-007`.
+//
+// 맨 ID를 인수로 읽으면 안 된다. `checkDecisionsLanded`가 정본(`01_plan` — `ux-brief` 포함)에
+// 결정 ID를 **내용 근거로** 인용하라고 이미 밀고 있고, 실제 트리에 그 습관이 있다
+// (`workspace/nocode-builder/…/ux-brief.md`의 "decision-log PC-002 연계"). 그 인용을 인수로
+// 세면 하네스의 다른 게이트를 따르는 것이 곧 부채를 지우는 행위가 된다 — 이 보고가 막으려던
+// 바로 그 fail-open이다(적대 리뷰 2026-09-04).
+//
+// 토큰을 쓰면 ID 네임스페이스를 열거할 필요도 없어진다. 종전에는 `PAGE|FEAT|TC|REQ`를 뺐는데
+// `REQ-F-001`의 `F-001`이 그 전방탐색을 빠져나가 오탐이 났다(실측: `'REQ-F-001'.match(…)`
+// → `['F-001']`). `ack:` 뒤만 읽으면 그 문제가 성립하지 않는다.
+const ACK_CITATION = /\back:\s*([A-Z]{1,4}-\d{3,})\b/gi
+const citedAcknowledgements = value =>
+  [...String(value ?? '').matchAll(ACK_CITATION)].map(match => match[1].toUpperCase())
+// 이름 칸에서 인수 토큰만 걷어낸다 — 화면 ID(`PAGE-002`)는 건드리지 않는다.
+const stripAcknowledgements = value => String(value ?? '')
+  .replace(/[([（]\s*(?:ack:\s*[A-Z]{1,4}-\d{3,}[\s,·]*)+[)\]）]/gi, ' ')
+  .replace(ACK_CITATION, ' ')
+
+const E2E_ABSENT = /^\(\s*absent\b/i
+export const resolveScreenExpectation = spec => {
+  // **스팩도 검증 전 문서다.** `{"targetShapes":"web-app"}` 같은 유효 JSON이 그대로 들어오면
+  // `hasUserInterface`가 `shapes.some is not a function`으로 죽고, 항상 exit 0을 약속한 보고가
+  // 비정상 종료한다(교차 모델 리뷰 2026-09-04 — 바인딩 문서에서 이미 한 번 물린 클래스다).
+  // 비어 있거나 형태가 아닌 것은 `false`가 아니라 **모른다**다 — 화면이 없다고 단정하면
+  // 기획에 화면이 있는데도 청구가 통째로 빠진다.
+  if (!Array.isArray(spec?.targetShapes) || spec.targetShapes.length === 0) return null
+  const ui = hasUserInterface(spec.targetShapes)
+  if (ui !== 'unknown') return ui
+  const e2e = spec?.testLayers?.e2e
+  if (typeof e2e !== 'string' || e2e.trim() === '') return null // 스팩이 말하지 않았다 — 모른다
+  return !E2E_ABSENT.test(e2e.trim())
+}
+
+// 화면이 있는 형태인가를 **기획 부재와 구분해서** 판정한다. 형태 정보는 스팩의
+// `targetShapes`가 정본이며(`hasUserInterface` — 카탈로그 밖 이름은 `unknown`으로 돌아온다),
+// 스팩이 아직 없으면 Page Groups 표로 판정한다. 어느 쪽도 없으면 **모른다고 말한다.**
+const designDebtStatus = ({root, sources, table, groups, denominator, screens, binding}) => {
+  // 형태 판정이 **가장 먼저**다. 기획 부재를 먼저 보면 화면 없는 형태(library·cli)가 기획을
+  // 세우지 않은 정상 경로인데도 "부채가 최대"로 나온다(교차 모델 리뷰 2026-09-04).
+  const spec = readSpecAt(root)
+  const ui = spec ? resolveScreenExpectation(spec) : null
+  if (ui === false) return 'no-screens'
+  // 바인딩 기록이 깨졌으면 그것을 근거로 센 숫자는 사실이 아니다. `checkDesignBinding`이
+  // HOLE을 내는 상태에서 이 보고만 `clear`를 내면 **막지 않는 보고가 거짓말을 한다**.
+  if (binding.present && binding.errors.length > 0) return 'binding-invalid'
+  if (sources.length === 0) return 'no-plan'
+  // Page Groups가 **있는데** 전역 책임뿐이면 화면이 없다. 이 판정은 분모 검사보다 앞에
+  // 서야 한다 — 화면이 없는 프로젝트에 정보 위계 표를 요구하는 것은 틀린 요구다.
+  // 단 **스팩이 UI 있음으로 확정한 경우에는 적용하지 않는다** — 그때 PAGE-000뿐인 것은
+  // 화면이 없는 것이 아니라 기획이 불완전한 것이고, 그것을 "그대로 진행"으로 보고하면
+  // 청구가 통째로 빠진다(교차 모델 리뷰 2026-09-04). Page Groups 추론은 형태를 모를 때만이다.
+  if (ui !== true && groups.length > 0 && !groups.some(row => row.id !== 'PAGE-000')) return 'no-screens'
+  if (groups.length === 0 || denominator.length > 0 || table.rows.length === 0) return 'denominator-broken'
+  // 여기까지 왔는데 잴 화면이 하나도 없으면 `clear`가 아니다 — 앞의 분기들이 "화면이 없는
+  // 형태"를 이미 걸렀으므로, 남은 0건은 **화면이 있어야 하는데 표에 없는 것**이다.
+  // `clear`로 내면 "부채 없음 — 화면 0개"라는 공허한 통과가 된다(교차 모델 리뷰 2026-09-04).
+  if (screens.length === 0) return 'denominator-broken'
+  // 디자인 산출물이 있으면 청구하지 않는다 — 단 **분모를 확인한 뒤에** 면제한다.
+  // `design-binding.json`은 공급된 근거의 귀속 기록이라 `generated` 경로에는 애초에 생기지
+  // 않으므로, 그것만 보고 판정하면 정상적으로 디자인을 만든 프로젝트가 전건 부채로 나온다.
+  // 그러나 이 면제를 기획·분모 검사보다 **앞에** 두면 반대 방향으로 샌다 — 중단 과정에서
+  // 남은 `layout-spec.md` 하나가 깨진 기획을 통째로 면제했다(교차 모델 리뷰 2026-09-04).
+  // 산출물의 존재는 "디자인 단계가 돌았다"는 신호일 뿐 분모가 성립한다는 뜻이 아니다.
+  if (!binding.present && hasDesignArtifacts(root)) {
+    const source = declaredDesignSource(root)
+    // **공급된 디자인인데 귀속 기록이 없는 것**은 다른 사연이다 — 시안을 받아놓고 어느
+    // 화면의 것인지 적지 않은 상태이며, `protected-core.md` §4의 「무문서 SKIP」 그 자체다.
+    if (source === 'supplied') return 'binding-missing'
+    // **`absent`는 면제하지 않는다.** 그 경로는 Phase 2 체크포인트를 수행하지 않았으므로
+    // "이미 확인했다"가 사실이 아니다 — 중단된 실행이 남긴 산출물 하나로 청구가 사라진다
+    // (교차 모델 리뷰 2026-09-04). 면제의 근거는 파일의 존재가 아니라 **그 단계가 돌았다는
+    // 선언**이다. 마커가 없으면 판정 불가이며 그 사실을 출력에 적는다.
+    if (source !== 'absent') return 'design-present'
+  }
+  const unbacked = screens.flatMap(screen => screen.conditions.filter(item => item.basis === 'pending' || item.basis === 'plan'))
+  if (unbacked.length === 0) return 'clear'
+  // **전부 인수됐으면 미결이 아니다.** 다만 `clear`("전부 시각 근거를 갖는다")도 아니다 —
+  // 근거가 아니라 결정이 있는 상태이고, 두 낱말을 섞으면 보고가 사실보다 강해진다.
+  return unbacked.every(item => item.acknowledgedBy !== null) ? 'acknowledged' : 'debt'
+}
+
+export function checkDesignBinding(root, {reportDenominator = true} = {}) {
+  const binding = collectDesignBinding(root)
+  if (!binding.present) return skip('design-binding', `${DESIGN_BINDING_PATH}이 없다 — 공급된 디자인 근거가 없는 경로다`)
+  if (binding.errors.length > 0) {
+    return hole('design-binding', `디자인 근거 기록이 유효하지 않다: ${binding.errors.slice(0, 3).join(' · ')}${binding.errors.length > 3 ? ` 외 ${binding.errors.length - 3}건` : ''}`,
+      'design-binding-contract.md의 형식으로 고친다 — 이 기록이 깨지면 시안이 어느 화면의 것인지 아무도 승계하지 못한다')
+  }
+  const document = binding.document
+  const declaredPages = new Set(planSources(root).flatMap(pageGroupIdsIn))
+  const accounted = new Set([...binding.boundPageGroups, ...document.unbound.pageGroups])
+  const missing = [...declaredPages].filter(id => !accounted.has(id)).sort()
+  const problems = []
+  if (document.unbound.references.length > 0) {
+    problems.push(`어느 조건에도 붙지 않은 근거 ${document.unbound.references.length}건: ${document.unbound.references.slice(0, 6).join(', ')}`)
+  }
+  if (document.unbound.pageGroups.length > 0) {
+    problems.push(`디자인 근거가 미결인 화면 ${document.unbound.pageGroups.length}건: ${document.unbound.pageGroups.slice(0, 6).join(', ')}`)
+  }
+  if (missing.length > 0) {
+    problems.push(`기획에 있으나 기록에 없는 화면 ${missing.length}건: ${missing.slice(0, 6).join(', ')}`)
+  }
+  // 역방향도 본다. 한쪽만 보면 **유령 화면**이 우회로가 된다 — 기획에 없는 PAGE-999를 만들어
+  // 근거를 거기 붙이면 `unbound.references`가 비어 통과하고, layout-designer는 라우팅 맵에
+  // 없는 화면을 입력으로 받는다(교차 모델 리뷰 2026-09-03). 기획을 못 읽었으면 대조하지
+  // 않는다 — 없는 것과 못 읽은 것은 다르다.
+  if (declaredPages.size > 0) {
+    const ghosts = [...accounted].filter(id => !declaredPages.has(id)).sort()
+    if (ghosts.length > 0) problems.push(`기획에 없는 화면에 붙은 기록 ${ghosts.length}건: ${ghosts.slice(0, 6).join(', ')}`)
+  }
+  // `pending`은 행이 있을 뿐 결정이 아니다. `unbound`를 비우려고 `pending`을 적는 우회를
+  // 막는다 — 그 우회를 허용하면 이 검사는 "행이 있는가"만 세는 프록시가 된다.
+  const pending = document.bindings.filter(b => b.resolution === 'pending')
+    .map(b => `${b.pageGroup}[${conditionLabel(b.condition)}]`)
+  if (pending.length > 0) problems.push(`결정이 미뤄진 조건 ${pending.length}건: ${pending.slice(0, 6).join(', ')}`)
+  problems.push(...conditionCoverageProblems(root, document, {reportDenominator}))
+  const c = binding.coverage
+  const summary = `근거 ${c.references}건 · 바인딩 ${c.bindings}건(공급 ${c.resolutions.supplied} · 파생 ${c.resolutions.derive} · 재사용 ${c.resolutions.reuse} · 미정 ${c.resolutions.pending}) · 화면 ${c.pageGroups}개`
+  if (problems.length === 0) return ok('design-binding', summary)
+  return hole('design-binding', `${problems.join(' · ')} [${summary}]`,
+    '각 화면·조건에 근거를 붙이거나, 근거가 없다고 **결정**해 resolution(derive|reuse:<id>)을 적는다 — 빈 칸으로 두면 그 결정은 구현 중에 즉흥으로 내려진다')
 }
 
 // FEAT마다 검증 기준이 있는가. 없으면 나중에 스팩이 unverifiable로 잠기고, 무엇이 완료인지
@@ -688,7 +1441,7 @@ export function analyzeHandoffReadiness(root, {to = 'development'} = {}) {
   const planChecks = [checkPlanDeclarations(units), checkProseOnlyOrdering(root, units), checkProseEdgesDeclared(root, units),
     checkAcceptanceCoverage(units), checkActivePickupIntact(root, units)]
   if (to === 'design') {
-    const results = [...planChecks, checkDesignInputs(root), checkUpstreamDecisionsReachable(root)]
+    const results = [...planChecks, checkSourceConsumption(root), checkDesignInputs(root), checkDesignBinding(root, {reportDenominator: false}), checkUpstreamDecisionsReachable(root)]
     const holes = results.filter(r => r.state === 'HOLE')
     return {schemaVersion: 1, to, verdict: holes.length === 0 ? 'READY' : 'HOLES', results, holes, parallelism: measureParallelism(units)}
   }
@@ -701,9 +1454,13 @@ export function analyzeHandoffReadiness(root, {to = 'development'} = {}) {
   const spec = readSpecAt(root)
   const results = [
     ...planChecks,
+    checkSourceConsumption(root),
     checkPathsAgainstSpec(units, spec),
     checkPathsSufficient(units),
     checkTicketsCoverPlan(root, units),
+    // 디자인 인계에서 통과한 기록이 그 사이에 지워지거나 어긋날 수 있다 — 늦게 잡을수록
+    // 되돌리는 비용이 커진다(planChecks가 두 인계에 모두 서는 것과 같은 판단).
+    checkDesignBinding(root),
     checkDecisionsLanded(root),
     checkRequirementsCovered(root),
     checkUpstreamDecisionsReachable(root),
@@ -722,8 +1479,96 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   const projectRoot = projectIndex >= 0 ? argv[projectIndex + 1] : undefined
   const to = toIndex >= 0 ? argv[toIndex + 1] : 'development'
   if (!projectRoot || !HANDOFFS.includes(to)) {
-    process.stderr.write(`사용법: node .claude/scripts/validate-handoff-readiness.mjs --project <root> --to ${HANDOFFS.join('|')} [--json]\n`)
+    process.stderr.write(`사용법: node .claude/scripts/validate-handoff-readiness.mjs --project <root> [--to ${HANDOFFS.join('|')} | --design-debt | --motion-role] [--json]\n`)
     process.exit(2)
+  }
+  // 디자인 부채 청구서. **판정이 아니라 보고이므로 항상 exit 0이다** — 이 출력으로 진행을
+  // 막지 않는다(`provenance-contract.md` §3). 결정은 사람이 하고 인수는 decision-log에 남는다.
+  // 모션 역할 공백 보고. **판정이 아니라 보고이므로 항상 exit 0이다** — 전수 드라이런에서
+  // 오탐 2건(18개 프로젝트 중 telemetry-viewer·minicar-laptime)이 나왔고, 자연어 중의성
+  // (부정문·다의어)에서 오는 것이라 규칙을 더 얹어도 완전해지지 않는다. 막지 않는 대신
+  // 이름으로 드러낸다 — `--design-debt`와 같은 취급이다.
+  if (argv.includes('--motion-role')) {
+    const report = checkMotionRoleTokens(resolve(projectRoot))
+    if (argv.includes('--json')) {
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
+      process.exit(0)
+    }
+    process.stdout.write(`모션 역할: ${report.state} — ${report.detail}\n`)
+    if (report.state === 'HOLE') {
+      process.stdout.write(`  ${report.remedy}\n`)
+      process.stdout.write('  이 보고는 진행을 막지 않는다. 반복 모션이 없는데 잡혔다면 오탐이며 그대로 진행한다.\n')
+    }
+    process.exit(0)
+  }
+  if (argv.includes('--design-debt')) {
+    const debt = designDebtReport(resolve(projectRoot))
+    if (argv.includes('--json')) {
+      process.stdout.write(`${JSON.stringify(debt, null, 2)}\n`)
+      process.exit(0)
+    }
+    if (debt.danglingCitations.length > 0) {
+      // 상태와 무관하게 **먼저** 말한다. 없는 결정을 인용해 미결을 지운 것은 자기신고보다
+      // 나쁘다 — 파일에 거짓이 남고, 그것을 근거로 다음 사람이 넘어간다.
+      process.stdout.write(`결정 로그에 없는 ID를 인용한 자리 ${debt.danglingCitations.length}건 — 인수로 세지 않았다\n`)
+      for (const item of debt.danglingCitations) {
+        process.stdout.write(`  · ${item.pageGroup}${item.label ? `[${item.label}]` : ''} → ${item.id}\n`)
+      }
+      process.stdout.write('\n')
+    }
+    if (debt.status === 'binding-missing') {
+      process.stdout.write('디자인 부채: 공급된 디자인인데 귀속 기록이 없다 — 어느 화면의 시안인지 아무도 승계하지 못한다\n')
+      process.stdout.write('  디자인을 다시 만드는 것이 아니라 `00_source/design-binding.json`에 귀속을 적는다(design-binding-contract.md).\n')
+    } else if (debt.status === 'design-present') {
+      process.stdout.write('디자인 부채: 디자인 단계 산출물이 있다 — 청구하지 않는다\n')
+      process.stdout.write('  조건별 귀속(`design-binding.json`)은 공급된 근거가 있을 때만 재며, 여기서는 재지 않았다.\n')
+      if (debt.designSource === null) {
+        process.stdout.write('  공급원을 판정할 수 없다(마커에 `DESIGN_SOURCE`가 없다) — 시안을 받아 만든 것이라면 귀속 기록이 필요하다.\n')
+      }
+    } else if (debt.status === 'binding-invalid') {
+      process.stdout.write('디자인 부채: 근거 기록이 유효하지 않다 — 그것을 근거로 센 숫자는 사실이 아니다\n')
+      for (const problem of debt.bindingProblems.slice(0, 6)) process.stdout.write(`  · ${problem}\n`)
+    } else if (debt.status === 'no-plan') {
+      process.stdout.write('디자인 부채: 기획 문서를 찾지 못했다 — 무엇이 미결인지 셀 분모가 없다\n')
+      process.stdout.write('  이것은 "청구할 것이 없다"가 아니다. 기획·디자인이 둘 다 없으면 부채는 최대다.\n')
+    } else if (debt.status === 'no-screens') {
+      process.stdout.write('디자인 부채: 화면이 없는 형태다 — 청구할 것이 없다\n')
+    } else if (debt.status === 'denominator-broken') {
+      process.stdout.write('디자인 부채: 조건 분모를 읽지 못했다 — 무엇이 미결인지 셀 수 없다\n')
+      for (const problem of debt.denominatorProblems) process.stdout.write(`  · ${problem}\n`)
+      if (debt.denominatorProblems.length === 0) process.stdout.write('  · Page Groups 표 또는 정보 위계 행이 없다\n')
+    } else if (debt.status === 'clear') {
+      process.stdout.write(`디자인 부채 없음 — 화면 ${debt.screens.length}개의 조건이 전부 시각 근거를 갖는다\n`)
+    } else if (debt.status === 'acknowledged') {
+      // `clear`와 섞지 않는다 — 근거가 아니라 **결정**이 있는 상태다.
+      process.stdout.write(`인수된 부채 ${debt.acknowledged.length}건 — 시각 근거는 없고 결정이 있다\n`)
+      for (const item of debt.acknowledged) process.stdout.write(`  · ${item.pageGroup}[${item.label}] ← ${item.acknowledgedBy}\n`)
+      for (const [id, count] of Object.entries(debt.acknowledgementFanOut)) {
+        if (count > 1) process.stdout.write(`  (${id} 하나가 ${count}건을 인수했다 — 범위가 넓다면 나눠 적는다)\n`)
+      }
+    } else {
+      // `pending`은 **내용이 없는 것이 아니라** 근거 방식을 명시적으로 미룬 것이다
+      // (`design-binding-contract.md` §3). 내용은 정보 위계 표에 있다 — 빈 칸이면 분모
+      // 검사가 먼저 잡는다. 두 부류를 "내용 유무"로 가르면 잘못된 결정을 요구하게 된다
+      // (교차 모델 리뷰 2026-09-04).
+      if (debt.deferred.length > 0) {
+        process.stdout.write(`결정이 보류된 조건 ${debt.deferred.length}건 — 근거 방식을 미뤄둔 자리다(인계 검사도 구멍으로 잡는다)\n`)
+        for (const item of debt.deferred) process.stdout.write(`  · ${item.pageGroup}[${item.label}]\n`)
+      }
+      if (debt.planOnly.length > 0) {
+        process.stdout.write(`시각 근거가 없는 조건 ${debt.planOnly.length}건 — 무엇을 보여줄지는 기획에 있고, 어떻게 그릴지가 없다\n`)
+        for (const item of debt.planOnly) process.stdout.write(`  · ${item.pageGroup}[${item.label}]\n`)
+      }
+      // **시점 중립으로 쓴다.** 이 출력은 기획 발행 직후(보여주기)와 개발 착수 직전(결정)
+      // 두 자리에서 쓰인다 — "지금 정하라"고 쓰면 결정을 요구하지 않는 자리에서 산문과
+      // 충돌한다(적대 리뷰 2026-09-04). 결정 시점은 부르는 쪽이 말한다.
+      if (debt.acknowledged.length > 0) {
+        process.stdout.write(`인수된 조건 ${debt.acknowledged.length}건 — 결정이 기록돼 있다\n`)
+        for (const item of debt.acknowledged) process.stdout.write(`  · ${item.pageGroup}[${item.label}] ← ${item.acknowledgedBy}\n`)
+      }
+      process.stdout.write('\n정하지 않은 조건은 구현하는 사람이 그 자리에서 정하게 된다.\n')
+    }
+    process.exit(0)
   }
   const report = analyzeHandoffReadiness(resolve(projectRoot), {to})
   if (argv.includes('--json')) {

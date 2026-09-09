@@ -1,4 +1,4 @@
-import {existsSync, readFileSync} from 'node:fs'
+import {existsSync, readdirSync, readFileSync} from 'node:fs'
 import {basename, join, resolve} from 'node:path'
 import {
   computeSourceFingerprint,
@@ -23,8 +23,10 @@ import {
 import {readProjectRegularFile} from './safe-project-file-lib.mjs'
 import {inspectExternalIngestion} from './web-core/ingestion-detection-lib.mjs'
 import {inspectSpecConformance} from './validate-spec-conformance.mjs'
+import {acceptanceSummary, designRoundSummary, resolveSymbols, routeBindingSummary} from './design-evidence-lib.mjs'
 export {computeSourceFingerprint, listSourceFiles, normalizePath, sha256} from './evidence-lib.mjs'
 export {releaseReportRequirements} from './release-report-policy.mjs'
+export {acceptanceSummary, designRoundSummary, exportedNames, resolveSymbols, routeBindingSummary} from './design-evidence-lib.mjs'
 export const REQUIRED_CHECKS = new Map([
   ['typecheck', 'code'],
   ['lint', 'code'],
@@ -97,7 +99,21 @@ export const requiresProtectedPrebuiltDeployment = lockedProfile => Boolean(
   ['static-cdn', 'static-export'].includes(lockedProfile.selection.target?.id)
 )
 
-export const buildReleaseManifest = (projectPath, {phase = 'final'} = {}) => {
+const collectSpecConformanceErrors = (projectRoot, errors) => {
+  let result
+  try {
+    result = inspectSpecConformance({projectRoot})
+  } catch (error) {
+    errors.push(`Spec conformance could not be inspected: ${error instanceof Error ? error.message : String(error)}`)
+    return
+  }
+  if (result.status !== 'FAIL') return
+  for (const failure of result.failures) {
+    errors.push(`Spec conformance [${failure.kind}]: ${failure.reason}`)
+  }
+}
+
+export const buildReleaseManifest = (projectPath, {phase = 'final', readExports} = {}) => {
   if (!['attestation-request', 'final'].includes(phase)) {
     throw new TypeError(`Unknown release manifest phase: ${phase}`)
   }
@@ -280,6 +296,18 @@ export const buildReleaseManifest = (projectPath, {phase = 'final'} = {}) => {
   if (sourceFingerprintAfterValidation !== sourceFingerprint) {
     errors.push('Source tree changed while release evidence was being validated')
   }
+  // 시안 구현 대조표 — 표 부재는 계약 의무 불이행이라 막고, 부실 기재 신호는 기록만 한다.
+  // 설계 → 코드 결속. **기록만 한다** — 경로만으로는 미구현과 개명을 구별할 수 없어
+  // 차단하면 개명한 정직한 프로젝트를 막는다(실측 근거는 `routeBindingSummary` 머리말).
+  const routeBinding = routeBindingSummary(projectPath)
+  // 심볼 수준은 경로가 못 가른 것을 가른다 — 선언된 심볼이 다른 파일에 있으면 개명,
+  // 그 이름이 어디에도 없으면 「이름 없음」이다(**미구현과 같지 않다** — 이름까지 바뀐
+  // 개명은 여기서 「이름 없음」으로 읽힌다). **역시 기록만 한다** — 실측에서 완주한 프로젝트도
+  // 미구현 항목을 가져 차단하면 소급 차단이 된다. 프로젝트 TypeScript를 빌려 쓰고
+  // 없으면 `NOT_MEASURED`(통과가 아니다)다.
+  const symbolBinding = resolveSymbols(projectPath, routeBinding, {readExports})
+  const designRound = designRoundSummary(projectPath)
+  if (designRound.state === 'MISSING') errors.push(`Design round implementation verdict is missing: ${designRound.missing.join(', ')}`)
   const manifest = {
     schemaVersion: 3,
     generatedAt: new Date().toISOString(),
@@ -291,6 +319,9 @@ export const buildReleaseManifest = (projectPath, {phase = 'final'} = {}) => {
     receipts,
     attestation,
     acceptance: acceptanceSummary(projectPath),
+    designRound,
+    routeBinding,
+    symbolBinding,
     profile: releaseProfileSummary(lockedProfile),
     adapterChecks,
     artifacts,
@@ -299,51 +330,12 @@ export const buildReleaseManifest = (projectPath, {phase = 'final'} = {}) => {
   return {errors: [...new Set(errors)], manifest}
 }
 
-// 확정된 스팩이 있으면 릴리스가 그 스팩에 묶인다(Stage 2b 배선).
-// **스팩이 없으면 발화하지 않는다** — 스팩은 opt-in이고, 한 번 확정하면 구속력을 갖는다.
-// visual-qa-contract.json 존재가 시각 QA를 활성화하는 것과 같은 관용구다.
-// 정합 검사가 판정하지 못한 것(unverifiable)은 여기서 errors로 올리지 않는다 — 미판정을
-// 실패로 바꾸는 것도, 통과로 바꾸는 것도 아니다.
-// 릴리스 산출물에 **수용 기준의 상태**를 남긴다.
-//
-// `specTier: "unverifiable"`은 "설계는 확정됐으나 맞는지 판정할 기준이 없다"는 뜻이다.
-// 이것을 FAIL로 바꾸면 기획 없는 브라운필드 개선이 막히고, 조용히 두면 **수용 기준 없이
-// 만들어진 결과가 그 사실을 잃은 채 릴리스된다**. 그래서 막지 않되 **표기한다** —
-// 나중에 이 릴리스를 보는 사람이 무엇이 검증되지 않았는지 알 수 있어야 한다(2026-08-28).
-export const acceptanceSummary = projectRoot => {
-  const specPath = join(resolve(projectRoot), '_workspace/03_dev/spec.json')
-  if (!existsSync(specPath)) return {state: 'NO_SPEC', note: '확정 스팩이 없다 — 수용 기준 추적 없음'}
-  let spec
-  try { spec = JSON.parse(readFileSync(specPath, 'utf8')) } catch { return {state: 'INVALID_SPEC', note: 'spec.json을 읽을 수 없다'} }
-  const refs = Array.isArray(spec?.acceptanceRefs) ? spec.acceptanceRefs : []
-  if (spec?.specTier === 'verifiable') {
-    return {state: 'VERIFIABLE', acceptanceRefs: refs, note: `수용 기준 ${refs.length}건에 결박된 릴리스다`}
-  }
-  return {
-    state: 'UNVERIFIABLE',
-    acceptanceRefs: refs,
-    note: '수용 기준 없이 확정된 스팩이다 — 이 릴리스는 ‘요구를 만족하는가’를 판정할 기준을 갖지 않는다. 검증된 것은 게이트가 본 것(lint·typecheck·test·build)뿐이다',
-  }
-}
-
-const collectSpecConformanceErrors = (projectRoot, errors) => {
-  let result
-  try {
-    result = inspectSpecConformance({projectRoot})
-  } catch (error) {
-    errors.push(`Spec conformance could not be inspected: ${error instanceof Error ? error.message : String(error)}`)
-    return
-  }
-  if (result.status !== 'FAIL') return
-  for (const failure of result.failures) {
-    errors.push(`Spec conformance [${failure.kind}]: ${failure.reason}`)
-  }
-}
-
-export const validateReleaseGate = projectPath => {
+// `readExports`는 **테스트 주입용 구멍**이다 — 심볼 상태가 릴리스 판정을 바꾸지 않는다는
+// 것을 회귀가 실제 상태(UNBUILT/RESOLVED)로 확인하려면 여기까지 뚫려 있어야 한다.
+export const validateReleaseGate = (projectPath, {readExports} = {}) => {
   const projectRoot = resolve(projectPath)
   const manifestPath = join(projectRoot, '_workspace/04_qa/qa-manifest.json')
-  const expected = buildReleaseManifest(projectRoot)
+  const expected = buildReleaseManifest(projectRoot, {readExports})
   const errors = [...expected.errors]
   collectSpecConformanceErrors(projectRoot, errors)
 

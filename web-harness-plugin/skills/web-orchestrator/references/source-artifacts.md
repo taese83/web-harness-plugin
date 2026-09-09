@@ -25,6 +25,36 @@ Use this reference when the user already has planning, design, API, or product d
 넘기고, 그 에이전트가 `confirmed` 티어로 블록을 쓴다
 (`provenance-contract.md` §1·§7, `web-harness-read agents/system-architect.md`).
 
+## 인벤토리 표 — `00_source/source-index.md`
+
+받은 원문을 **한 행씩** 적는다. 형태가 고정돼야 하는 이유는 하나다 — **받았다는 기록과 썼다는
+기록을 맞추기 위해서**다. 종전에는 「기록한다」까지만 정하고 형태를 두지 않았고, 그래서 실제
+산출물의 형식이 서로 달랐다(실측 2026-09-08: 가로 인벤토리 표 / 세로 key-value 표). 형식이
+다르면 `supplied`는 영원히 자기보고로 남는다.
+
+```markdown
+## 인벤토리
+
+| 출처 | 형태 | 스냅샷 경로 | 가져온 시각 | 가져온 주체·수단 | SHA-256 | 분류 | 소비 지점 |
+|---|---|---|---|---|---|---|---|
+| PRD (Confluence) | URL(인증) | `00_source/fetched/prd.md` | 2026-09-08T01:00Z | 오케스트레이터 / 커넥터 | `a1b2…` | 기획 입력 | `01_plan/requirements.md`, `01_plan/feature-plan.md` |
+| 대시보드 시안 | 시안 이미지 | `00_source/design/dashboard.png` | 2026-09-08T01:04Z | 사용자 export | `c3d4…` | 디자인 입력 | `02_design/layout-spec.md` |
+| 구 운영 가이드 | 로컬 파일 | `00_source/legacy-ops.md` | 2026-09-08T01:06Z | 로컬 경로 | `e5f6…` | 참고 | 없음(범위 밖 — 운영 절차만 담김) |
+```
+
+- **`소비 지점` 열은 필수다.** 그 원문이 어느 정규화 산출물로 갔는지 프로젝트 상대 경로로 적는다
+  (`01_plan/…` · `02_design/…`, 여럿이면 쉼표). 열 이름은 `소비 지점` 또는 `Consumed by`다.
+- **쓰지 않았으면 `없음(사유)`로 명시한다.** 받았으나 쓰지 않은 것은 정상이며 그것은 **결정**이다.
+  빈 칸은 결정이 아니라 미기록이고, 인계 판정이 미기록으로 잡는다.
+- **소비 지점으로 적은 산출물은 자기 `## Source Trace`에서 그 스냅샷을 되짚어야 한다.**
+  한쪽만 적으면 대조가 성립하지 않는다 — `design-binding`이 화면 집합을 양방향으로 보는 것과
+  같은 이유다(한 방향만 보면 유령 항목이 통과한다).
+- 다른 열은 아래 「공급 형태」 표가 요구하는 것을 그대로 옮긴다. 해시를 낼 수단이 없으면
+  **칸을 비우고 사유를 적는다** — 계산하지 않은 해시를 적는 것은 위조다.
+
+기계 대조는 `validate-handoff-readiness.mjs`의 `source-consumption`이 하며, 이 파일이 없으면
+`SKIPPED`다(공급 경로를 쓰지 않은 프로젝트).
+
 ## 공급 형태 — 무엇을 어떻게 받는가
 
 공급원이 `supplied`인 단계는 아래 다섯 형태 중 하나로 들어온다(`provenance-contract.md` §1).
@@ -38,6 +68,11 @@ Use this reference when the user already has planning, design, API, or product d
 | **대화 중 서술**(inline) | 사용자가 채팅에 적은 기획·디자인 내용 | `00_source/inline-{stage}.md`에 **그대로** 옮겨 적고 출처가 대화임을 명시 |
 | **시안 이미지** | 스크린샷·export PNG/JPG/PDF | 파일 경로 + SHA-256 + 어느 화면인지 매핑 |
 | **Figma MCP** | 승인·가용할 때만. 아래 절차 | node ID + frame/component/variable 목록 + Code Connect mapping(있으면) |
+
+**형태와 무관하게, 받은 근거가 어느 화면의 어느 조건인지는 따로 기록한다.** 그 정본은
+`_workspace/00_source/design-binding.json`이며 형식과 소유는 `design-binding-contract.md`가 갖는다
+— 여기서 정하는 것은 수집 절차까지다. 하나의 화면이 조건(권한 없음·빈 상태·모바일)에 따라 여러
+근거를 갖는 것이 정상이고, 그 대응을 산문 `Source Trace`로만 남기면 기계가 승계하지 못한다.
 
 ### URL·링크
 
@@ -126,7 +161,8 @@ export 경로로 간다. **fixture 검증은 아직 없다 — 명명 수준이�
 | 화면 구조·정보 위계·영역 분할 | `02_design/layout-spec.md` |
 | 반복 UI 패턴과 상태 | `02_design/component-spec.md` |
 | 색·타이포·간격·radius·그림자 토큰 | `02_design/design-system.md` |
-| 화면 ↔ route 매핑 | `layout-spec.md`의 라우팅 맵 |
+| 화면 ↔ route 매핑 | `layout-spec.md`의 라우팅 맵 (`SURFACE_MODEL: overlay`면 서피스 맵) |
+| 화면·조건 ↔ 시안 매핑 | `00_source/design-binding.json` (`design-binding-contract.md`) |
 
 **픽셀 단위 동일은 보장하지 않는다.** `visual-design-verify`의 `visual-qa-contract.md`가
 "Pixel-perfect Figma 일치를 범용 hard gate로 사용하지 않는다"를 이미 결정했다 — 텍스트 렌더링과
@@ -154,6 +190,11 @@ seat/plan 제약과 화면·디자인 데이터의 외부 전송 경계를 사�
 2. 노드마다 구조(`get_metadata`)와 변수(`get_variable_defs`)를 가져오고, 필요하면 스크린샷으로
    시각을 확인한다. Code Connect가 있으면 design ↔ code 매핑을 보존한다.
    **호출은 유한하다** — 아래 「호출 한도」를 지킨다.
+2-1. **node-id를 받을 때 어느 화면·어느 조건인지 함께 받는다.** 이름 유사도로 추론하지 않는다
+   (`design-binding-contract.md` §4 — `declaredBy` 어휘에 `inferred`가 없다). 사용자가 말하지
+   않았으면 후보를 제시해 되묻고, 답을 받기 전에는 `design-binding.json`의 `unbound.references`에
+   둔다. **수집 순서는 각 화면의 `default` 조건부터** — 호출 한도로 절단되면 default 없이
+   조건 프레임만 남는다.
 3. `00_source/figma-{fileKey}-{nodeId}.md`에 **텍스트 스냅샷**을 남긴다 — fileKey·node ID·가져온
    시각·구조 트리·변수 목록·(있으면) Code Connect 매핑. **이후 추적성의 정본은 Figma URL이 아니라
    이 스냅샷이다**(원격 파일은 변하고 재현되지 않는다).
@@ -299,57 +340,9 @@ When documents conflict:
 
 Record every conflict in `_workspace/00_source/gap-report.md`.
 
-## Source Change Proposal Format
+## 정규화 규칙은 별도 문서다
 
-Use `_workspace/00_source/source-change-proposals.md` for suggested original-source changes:
-
-```markdown
-# Source Change Proposals
-
-| Source | Section | Issue | Proposed change | Reason |
-|---|---|---|---|---|
-| `_inputs/api/openapi.yaml` | `GET /users` | response conflicts with sample JSON | align `status` enum with sample | implementation type safety |
-```
-
-## Normalization Rules
-
-- Preserve the user's terminology for domain entities, menu labels, and business concepts.
-- Convert design screens to routes and page responsibilities in `layout-spec.md`.
-- Convert reusable UI patterns to `component-spec.md`.
-- Convert visual tokens to `design-system.md`; if tokens are missing, mark defaults as `ASSUMPTION`.
-- 여러 노드의 변수를 `design-system.md`로 합칠 때 **컬렉션을 통합하지 않는다.** 컬렉션별로 구분해
-  적고 각 토큰에 출처 노드를 남긴다. 어휘를 하나로 고르는 것은 정규화가 아니라 사용자 결정이다.
-- Convert API tables/OpenAPI/sample JSON to `api-schema.md`; if no API exists, use MSW-only mock endpoints and mark them as `ASSUMPTION`.
-- Convert acceptance criteria to feature completion checks in `feature-plan.md`.
-- Normalize target screen, primary user task, current pain, observable success, annotation intent, critical states, data strategy, and effort trade-off into `planning-context.md`.
-- Apply `../../web-plan/references/planning-facilitation-contract.md` and `planning-readiness-contract.md`; missing product context or conflicting annotations remain `NEEDS_DECISION | BLOCKER`.
-
-## Gap Categories
-
-Use these labels in `gap-report.md`:
-
-- `INFO` — useful context missing, but development can continue.
-- `ASSUMPTION` — a reasonable default was chosen and documented.
-- `CONFLICT` — two sources disagree; the chosen source and reason are recorded.
-- `BLOCKER` — implementation should not continue without user input.
-
-Treat these as `BLOCKER` unless the user explicitly allows assumptions:
-
-- no target screen list and no way to infer routes
-- no primary user role or audience for a role-sensitive app
-- design contradicts required feature scope
-- API requires real credentials or production mutations
-- existing target directory contains unrelated user files
-
-## Source Trace Format
-
-Add this section to each normalized output:
-
-```markdown
-## Source Trace
-
-| Section | Source | Notes |
-|---|---|---|
-| 화면 목록 | `_inputs/design/screen-spec.md#Dashboard` | route로 변환 |
-| 결제 상태 | `_inputs/planning/prd.md#Billing` | business rule |
-```
+원문을 받은 **뒤** 적용하는 것 — 변환 규칙·판본/스펙아웃 처리·갭 분류(`INFO`·`ASSUMPTION`·
+`QUESTION`·`CONFLICT`·`BLOCKER`)·질문지·Source Trace 형식·원문 변경 제안 — 은
+`source-normalization.md`가 정본이다.
+이 문서는 **획득**까지만 다룬다. 둘을 한 파일에 두면 소비자가 갈리는데 크기는 한 덩어리로 커진다.
