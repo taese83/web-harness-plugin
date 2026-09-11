@@ -15,13 +15,11 @@ The local Console (port 4310) and isolated preview (4311) are started against th
 
 ## Entry-point commands
 
-These are the commands you invoke directly. Everything else this plugin ships is an **internal building block** that the orchestrators call for you (Phase steps, companion setups, AI submodes) — they appear in the `/web-harness:` list but are not meant to be run standalone.
+These are the commands you invoke directly. Everything else this plugin ships is an **internal building block** that `/web-harness:wh` calls for you (orchestrators, Phase steps, companion setups, AI submodes) — they appear in the `/web-harness:` list but calling one directly skips the lane banner and its gates.
 
 | Command | Use it to |
 |---|---|
-| `/web-harness:web-orchestrator` | Build a complete web app from a description (plan → design → dev → QA). The master entry. |
-| `/web-harness:web-plan` | Produce or refine the plan only (planning facilitation + readiness review). |
-| `/web-harness:feature-add` | Add one feature to a finished project (scoped plan → design → dev → QA loop). |
+| `/web-harness:wh` | **The single entry point.** Judges the lane and shows it: `/web-harness:wh plan` (planning only, stops at the plan-reviewer readiness gate) · `/web-harness:wh new` (plan → design → dev → QA) · `/web-harness:wh change` (add behaviour) · `/web-harness:wh fix` · `/web-harness:wh verify`. Force a lane by leading with it; plugin skills are always namespaced. |
 | `/web-harness:team-flow` | Ticket-based team development — batch-claim a plan into GitHub Issues on a feature branch, pick up tickets into evidence PRs. |
 | `/web-harness:pr-drafter` | Draft a PR description from the current branch diff. |
 | `/web-harness:web-console` | Open the approval-gated local Console for the current project. |
@@ -29,6 +27,6 @@ These are the commands you invoke directly. Everything else this plugin ships is
 
 First app, cost expectations, and the brownfield path: see the [quickstart](https://github.com/taese83/web-harness/blob/main/docs/quickstart.md).
 
-- Version: 0.25.1
+- Version: 0.26.0
 - 25 skills · 45 agents · 5 safety hooks
 - Always-on context cost ≈10k tokens/session (plus a few SessionStart re-entry lines only in `_workspace/` harness-managed projects) — disable when idle: `/plugin disable web-harness@web-harness-marketplace`

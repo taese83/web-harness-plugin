@@ -193,7 +193,22 @@ node .claude/scripts/validate-handoff-readiness.mjs --project {root} --design-de
    라우팅**에 대한 문장이지 소유권 면제가 아니다. 스팩의 `moduleBoundaries` 각각이 한 스폰의
    범위(`change-scope.md`의 `ALLOWED_PATHS`)가 되고, 소유권은 `layerMap`이 공급한다. **무엇을
    어느 순서로 만들지 지시하지 않는다** — 스팩이 정한 `architecture`·`layerMap`·`libraries` 안에서
-   모델이 정한다. 경계가 겹치지 않으므로 병렬이 안전하다.
+   모델이 정한다.
+
+   **병렬 안전의 조건(2026-09-10 정정)**: 경계가 겹치지 않는 것은 필요조건일 뿐이다. 범위를
+   집행하는 훅은 모든 스폰이 공유하는 `change-scope.md` **하나**를 읽는다 — 같은 체크아웃에서
+   병렬로 쓰면 **마지막에 기록된 범위가 다른 스폰에도 적용**된다(감사 FINDING-003).
+   스폰마다 다른 범위를 넣는 채널이 이 하네스에 없으므로 실효 있는 안전 조건은 하나뿐이다:
+
+   **같은 체크아웃에서 developer 쓰기 스폰은 직렬로 띄운다** — 병렬이 필요하면 **체크아웃(worktree)을
+   나눈다.** 세션만 나누는 것은 격리가 아니다 — 훅은 세션과 무관하게 같은 프로젝트 루트의
+   `change-scope.md`를 읽는다(worktree 분리는 훅의 root 판정과 함께 검증되지 않았다).
+   **2026-09-11부터 훅이 강제한다**: 먼저 쓴 developer 스폰이 체크아웃 단위 write 임대를 잡고
+   (`write-lease-lib.mjs` — 스폰 신원은 런타임이 넣는 `agent_id`), 다른 스폰의 쓰기는 막히며,
+   `SubagentStop`이 자기 임대를 놓는다. 그러니 **병렬로 띄우면 두 번째 스폰은 막히고 멈춘다** —
+   실측 receipt `docs/audits/receipts/2026-09-11-write-lease-e2e.json`. 직렬로 띄워라.
+   임대는 자동 회수하지 않는다: 홀더가 `SubagentStop` 없이 죽으면 다음 쓰기가 경로를 대며 막히고
+   사람이 지운다. (스폰별 범위를 env로 넣던 첫 시도는 생산자 0건이라 걷어냈다.)
    - 구조 지시 빌더 6종(`app-shell`·`route`·`component`·`entity-query`·`feature-mutation`·
      `data-ui-binder`)은 2026-08-26에 제거됐다. 실측으로 그 소유권이 이미 성립하지 않았고
      (`src/pages/**` 3중 겹침, 비-FSD 어휘 무소유) 공급한 것은 격리가 아니라 FSD 경로 처방이었다.

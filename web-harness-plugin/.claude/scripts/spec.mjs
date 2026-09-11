@@ -54,7 +54,14 @@ export const SPEC_LEDGER = '_workspace/03_dev/spec-ledger.jsonl'
 // 스팩 확정 내용 자체의 해시. 원장 기록과 대조해 사후 수정을 잡는다.
 export const specDigest = spec => sha256(JSON.stringify(spec))
 
+// 경계는 **"개발이 읽는 계약"이 아니라 "스팩이 근거로 삼은 것"**이다. 2026-09-09까지 이
+// 목록은 앞의 선으로 그어져 있었고, 그래서 기획→디자인 **매칭 계층 전체가 밖에 있었다** —
+// 시안 v2가 와서 `design-binding.json`의 (PAGE, 조건) → 근거를 다시 붙여도, 디자이너가
+// `layout-spec.md`와 토큰을 갈아도 스팩은 stale이 되지 않았다. 조건 커버리지는 행이 있으니
+// 100%로 서고, 개발자는 옛 근거를 보고 계속 만든다. 매칭 기록은 이 흐름의 경첩이므로
+// `layerMap`·`libraries`가 원장으로 막은 사후 수정과 같은 클래스다.
 export const LOCK_INPUTS = [
+  '_workspace/00_source/design-binding.json',
   '_workspace/01_plan/feature-plan.md',
   '_workspace/01_plan/tech-stack.md',
   '_workspace/01_plan/project-profile.json',
@@ -62,6 +69,8 @@ export const LOCK_INPUTS = [
   '_workspace/02_design/component-spec.md',
   '_workspace/02_design/state-contract.md',
   '_workspace/02_design/integration-overlay.json',
+  '_workspace/02_design/layout-spec.md',
+  '_workspace/02_design/design-system.md',
   '_workspace/02_design/solution-design.md',
 ]
 
@@ -522,8 +531,15 @@ export const buildSpec = ({decision, digest, acceptanceIds}) => {
   const testLayers = validateTestLayers({...decision, targetShapes})
 
   return {
-    // 2 = testLayers를 담는 세대(2026-08-28). 1은 그 이전에 확정된 스팩이며 읽기 전용 이력이다 —
-    // 이미 커밋된 증거(golden T1 receipt에 결박된 spec)를 새 규칙에 맞춰 고쳐 쓰지 않는다.
+    // 2 = testLayers를 담는 세대(2026-08-28). 1은 그 이전에 확정된 스팩이다 — 원칙은 **읽기 전용
+    // 이력**이며, 이미 커밋된 증거에 결박된 spec을 새 규칙에 맞춰 고쳐 쓰지 않는다.
+    //
+    // **예외(2026-09-10 개정)**: 그 결박이 **이미 끊겨 있으면** 보호할 대상이 없다. 실측 —
+    // `vite-serverless-hybrid`의 T1 receipt는 8/23에 났고 v1 잠금은 8/26이다. `spec.json`이
+    // `computeSourceFingerprint` 범위 안이므로 **잠금 자체가 그 receipt를 stale로 만들었다**.
+    // 결박이 없는 v1은 이관할 수 있고, 이관하지 않으면 재-잠금이 불가해 골든 드리프트를
+    // 게이트로 세울 수 없다(v1에는 v2가 요구하는 `testLayers`가 없어 `lockSpec`이 거부한다).
+    // 이관은 T1 재dispatch를 **빚으로 남긴다** — 그 사실을 JUDGMENT에 적는다.
     schemaVersion: 2,
     specTier: acceptanceSource === 'feature-plan' ? 'verifiable' : 'unverifiable',
     acceptanceSource,
