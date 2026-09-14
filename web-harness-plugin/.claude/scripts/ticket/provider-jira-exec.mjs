@@ -7,12 +7,8 @@
 // `fetch`는 주입 가능하다 — 테스트가 네트워크 없이 전 경로를 돌 수 있어야 한다(GitHub provider의
 // `exec` 주입과 같은 규율).
 
-import {
-  toAdf,
-  buildIssueFieldsFor, classifyJiraError, closeReference, featureJql,
-  isClosed, parseCreateResponse, parseIssueResponse, parseSearchResponse, requireJiraConfig, resolveTransitionId,
-  supportedTransitions,
-} from './provider-jira.mjs'
+import {toAdf, assigneeIdentity, buildWorkIssueFieldsFor, classifyJiraError, closeReference, featLabel, isClosed, parseCreateResponse, parseIssueResponse, requireJiraConfig, resolveTransitionId, supportedTransitions} from './provider-jira.mjs'
+import {issueLinkBody, parseCursor, parseWorkSearch, workJql, workKeysJql, workRelationMode} from './work-provider.mjs'
 
 /** `resolveIssue`가 가져오는 필드. 빠진 필드는 응답에서 `undefined`로 와 「없다」와 구별되지 않는다. */
 export const ISSUE_FIELDS = Object.freeze([
@@ -67,12 +63,8 @@ export function createJiraProvider({config, fetchImpl = null, env = process.env}
   const provider = {
     // ── TicketProvider 필수부 ──
     name: 'jira',
-    buildFields: (draft, opts = {}) => buildIssueFieldsFor(config, draft, opts),
-    async findByFeature(featureId) {
-      const jql = featureJql(config, featureId)
-      const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&maxResults=1&fields=summary,labels,status`, options)
-      return parseSearchResponse(payload)
-    },
+    buildWorkFields: draft => buildWorkIssueFieldsFor(config, draft),
+    featLabel,
     async createIssue(fields) {
       const payload = await call(config, '/issue', {...options, method: 'POST', body: fields})
       const created = parseCreateResponse(payload)
@@ -103,6 +95,42 @@ export function createJiraProvider({config, fetchImpl = null, env = process.env}
       const issue = parseIssueResponse(payload)
       if (!issue) throw new Error(`JIRA_ISSUE_NOT_FOUND: ${key}`)
       return issue
+    },
+    // ── WORK 축(P2-b) ── FEAT 조회를 재사용하지 않는다. 절단·미지원을 성공으로 세지 않는다.
+    /** 계획·작업 라벨로 WORK 티켓을 찾는다. `complete:false`면 더 있을 수 있다 — 부재를 단정하지 않는다. */
+    async findByWorkId({planId, workId}) {
+      const jql = workJql(config, {planId, workId})
+      const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&maxResults=50&fields=summary,labels,status`, options)
+      return parseWorkSearch(payload)
+    },
+    /** 키 목록을 페이지로 돈다. `cursor`는 다음 `startAt`이며 없으면 처음부터. */
+    async listWorkIssues({keys, cursor = null, pageSize = 50}) {
+      const startAt = parseCursor(cursor) // 손상된 커서를 0으로 접지 않는다 — 1페이지를 다시 읽고 완결을 잘못 계산한다
+      const jql = workKeysJql(keys)
+      const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${pageSize}&fields=summary,labels,status,assignee`, options)
+      const parsed = parseWorkSearch(payload, {fetched: startAt})
+      // 요청한 키 중 **못 본 것**을 함께 돌려준다 — 「조회했는데 없다」와 「이 페이지에 없다」는 다르다.
+      const observed = new Set(parsed.matches.map(item => item.ticketKey))
+      // 배정 신원은 **쓰는 어휘와 같은 함수**로 고른다(픽업의 소유 판정과 갈라지지 않게).
+      const items = parsed.matches.map(item => ({...item,
+        assignees: item.assigneeRequested ? [assigneeIdentity(item.assigneeUser, config.assigneeField)].filter(Boolean) : null}))
+      return {items, nextCursor: parsed.nextCursor, complete: parsed.complete, total: parsed.total,
+        requested: keys.map(String), missing: parsed.complete ? keys.map(String).filter(key => !observed.has(key)) : null,
+        ...(parsed.stalled ? {stalled: true} : {})}
+    },
+    /** 부모-자식 관계. **설정이 정한다** — 능력이 없으면 무엇을 설정해야 하는지 돌려주고 성공을 위장하지 않는다. */
+    async linkRelated({parentKey, childKey}) {
+      const relation = workRelationMode('jira', config)
+      // `link-only`도 여기서 적용되지 않는다 — 본문 참조는 발행(P2-c)이 본문에 남기는 것이지 관계 API가 아니다.
+      if (relation.mode !== 'issue-link') return {applied: false, mode: relation.mode, needsConfig: relation.needsConfig}
+      try {
+        await call(config, '/issueLink', {...options, method: 'POST',
+          body: issueLinkBody({parentKey, childKey, linkType: relation.linkType, parentSide: relation.parentSide})})
+        return {applied: true, mode: 'issue-link', linkType: relation.linkType, parentSide: relation.parentSide}
+      } catch (error) {
+        // 실패를 삼키지 않는다 — 무엇이 막혔는지 분류해 올린다(권한·설정·링크 타입 부재).
+        return {applied: false, mode: 'unknown', error: String(error?.message ?? error).slice(0, 200), classified: classifyJiraError(String(error?.message ?? error))}
+      }
     },
     async assign(key, assignee) {
       const body = config.assigneeField === 'name' ? {name: assignee} : {accountId: assignee}
@@ -144,19 +172,17 @@ export function createJiraProvider({config, fetchImpl = null, env = process.env}
   }
 
   // 본문 교체 — 역방향 인테이크의 스탬프 경로. description은 코멘트와 같은 버전 분기를 탄다.
+  // 라벨 증감 — `update.labels`의 add/remove만 보낸다(`fields.labels` 교체는 사람이 단 라벨까지 지운다).
+  provider.updateLabels = async (key, {add = [], remove = []}) => {
+    const ops = [...add.map(label => ({add: label})), ...remove.map(label => ({remove: label}))]
+    if (ops.length > 0) await call(config, `/issue/${encodeURIComponent(key)}`, {...options, method: 'PUT', body: {update: {labels: ops}}})
+    return {ticketKey: String(key), added: add, removed: remove}
+  }
+
   provider.updateBody = async (key, body) => {
     await call(config, `/issue/${encodeURIComponent(key)}`, {...options, method: 'PUT',
       body: {fields: {description: commentBody(body)}}})
     return {ticketKey: String(key), updated: true}
-  }
-
-  // 되살리기는 Jira에서 별도 API가 아니라 전이다 — 그 phase 매핑이 있을 때만 노출한다.
-  if (phases.includes('reopen')) {
-    provider.reopenIssue = async (key, comment = null) => {
-      // 같은 결함이 여기에도 있었다 — 위 `commentBody`로 통일한다.
-      if (comment) await call(config, `/issue/${encodeURIComponent(key)}/comment`, {...options, method: 'POST', body: {body: commentBody(comment)}})
-      return provider.transition(key, 'reopen')
-    }
   }
 
   return provider

@@ -5,10 +5,10 @@ argument-hint: "[service description]"
 disable-model-invocation: true
 allowed-tools: Read, Glob, Grep, Write, Edit, Bash, Agent
 metadata:
-  version: 1.2.0
+  version: 1.3.0
   maturity: eval-covered
-  updated: 2026-09-10
-  changelog: description을 참으로 — `/wh plan` 레인이 이 스킬을 실제로 호출한다(종전엔 호출 경로 0건). 계속 경로를 내부 스킬에서 `/wh new`로 — 감사 FINDING-001. 이전 — ASSUMPTION 관용구를 시안 확정(발산 조사가 커밋한 단일 시안 승인)으로 교체 — design-readiness-contract.
+  updated: 2026-09-11
+  changelog: 공급 취합 단계(0) — 붙인 문서는 ingestor로, 기획 티켓 키는 기존 intake로 00_source에 넣고 계획이 읽는다. 종전에는 /wh plan에 0-A가 없어 준 자료가 계획에 닿지 않았다. 이전 — description을 참으로 — `/wh plan` 레인이 이 스킬을 실제로 호출한다(종전엔 호출 경로 0건). 계속 경로를 내부 스킬에서 `/wh new`로 — 감사 FINDING-001. 이전 — ASSUMPTION 관용구를 시안 확정(발산 조사가 커밋한 단일 시안 승인)으로 교체 — design-readiness-contract.
 ---
 
 # Web Plan
@@ -21,6 +21,12 @@ metadata:
 
 `/web-plan {서비스 설명}`을 입력하면:
 
+0. **공급 취합 — 계획보다 먼저.** 요청에 기획 문서·링크가 붙어 있으면 `source-artifact-ingestor`로
+   `_workspace/00_source/`에 원문을 보존한다(`/wh new`의 0-A와 같은 규칙 — 정본
+   `../web-orchestrator/references/provenance-contract.md` §6). 기획 **티켓 키**가 붙어 있으면 티켓마다
+   `node .claude/scripts/ticket/cli.mjs intake <키> --repo <o/r>`로 격리 스냅샷과 인벤토리 행을 만든다(기존
+   입구 — 트래커 설정이 없으면 그 안내를 그대로 보여준다). 기획 티켓은 **출처**다 — 개발 작업으로 청구하지
+   않고, 계획 요청만으로 개발 티켓을 발행하지 않는다. 이 단계를 건너뛰면 사용자가 준 자료가 계획에 닿지 않는다.
 1. `_workspace/01_plan/`을 만들고 `planning-facilitator`가 제품 중심 intake와 기존 근거를 `_workspace/01_plan/planning-context.md`, `decision-log.md`에 정리한다.
 2. 제품 맥락 뒤 external ingestion을 의미 기반으로 판별한다. 해당하면 `EXTERNAL_DATA_INGESTION_MODE: true`를 고정하고 source 권한, authoritative source, `static-snapshot|live-api|hybrid`, cadence, freshness, count·coverage, promotion rejection, serving fallback, root/provider cwd를 planning agent 입력에 포함한다. source 권한 또는 authoritative source가 없으면 `BLOCKER`로 남긴다.
 3. `requirements-analyst` → `requirements.md`

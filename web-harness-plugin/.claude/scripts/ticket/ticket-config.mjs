@@ -34,6 +34,11 @@ export const JIRA_QUESTIONS = [
   // **컴포넌트 어휘는 팀이 정한다.** `PLAN`이 기획이고 `DEVELOP`이 아니라는 것을 하네스가
   // 알 방법이 없다 — 팀마다 이름도 뜻도 다르다. 그래서 **매핑을 선언으로 받는다**(I3).
   // 예: `componentAxis.PLAN` = `기획 입력` · `componentAxis.DESIGN` = `디자인 입력`.
+  // WORK 분해(P2)의 관계 표현 — **선언이 없으면 발행을 막는다.** 여기 없으면 `configure`가 allowlist로
+  // 거부해 사람이 JSON을 손편집해야 한다(적대 리뷰 2026-09-14: 지시한 설정을 지원 경로가 막던 자리).
+  {key: 'workLink.mode', required: false, ask: 'WORK 티켓과 부모의 관계 표현 — `issue-link`(프로젝트의 링크 타입 사용) 또는 `link-only`(본문 참조뿐, 관계 아님). 비우면 WORK 발행이 막힙니다'},
+  {key: 'workLink.linkType', required: false, ask: 'issue-link일 때 쓸 링크 타입 이름 (그 프로젝트에 실재하는 것 — 예: Relates)'},
+  {key: 'workLink.parentSide', required: false, ask: '링크에서 부모가 어느 쪽인가 — outward(기본) 또는 inward. 링크 타입 설명문이 정합니다', default: 'outward'},
   {key: 'componentAxis', required: false, ask: '컴포넌트 → 공급 원문 분류 매핑. 인테이크가 티켓의 컴포넌트를 보고 분류를 정합니다(예: PLAN=기획 입력, DESIGN=디자인 입력). 하네스가 발행하는 개발 티켓의 컴포넌트는 `개발 티켓`으로 선언하면 인테이크가 그것을 공급 원문으로 받지 않습니다. 비우면 인테이크가 분류하지 않고 ingestor가 본문을 읽어 정합니다'},
 ]
 
@@ -49,8 +54,16 @@ export const GITHUB_QUESTIONS = [
   {
     key: 'host',
     required: false,
-    ask: 'GitHub 호스트 — github.com 또는 사내 GitHub Enterprise 주소(예: github.example.com). 저장소 원격에서 뽑아 제안할 수 있다(git-origin.hostFromRemoteUrl)',
+    ask: 'GitHub 호스트 — github.com 또는 사내 GitHub Enterprise 주소(예: github.example.com). 저장소 원격 URL의 호스트를 기본값으로 제안한다',
     default: 'github.com',
+  },
+  // GitHub에도 관계 선언이 필요하다. 확인된 유형 관계가 없으므로 값은 `link-only`뿐이고,
+  // 그것이 **관계가 아니라 본문 참조**라는 사실을 사람이 명시로 받아들여야 발행이 열린다
+  // (트래커 이름으로 면제하지 않는다 — `workRelationMode`).
+  {
+    key: 'workLink.mode',
+    required: false,
+    ask: 'WORK 티켓과 부모의 관계 표현 — GitHub은 `link-only`(본문 참조뿐, 관계 아님)만 가능합니다. 비우면 WORK 발행이 막힙니다',
   },
 ]
 
@@ -130,14 +143,6 @@ export function resolveProviderChoice({stored = null, requested = null} = {}) {
   return {provider: storedProvider, needsChoice: false, switching: {from: storedProvider, to: requested}}
 }
 
-/**
- * 원장 레코드의 provider를 읽는다 — **없으면 'github'**.
- * 이 필드는 2026-09-02에 생겼고 그 전 레코드는 전부 GitHub이다. 기본값을 문서에만 적으면
- * 읽는 쪽마다 다르게 가정한다.
- */
-export function recordProvider(record) {
-  return record?.provider ?? 'github'
-}
 
 /**
  * 사용자 답을 설정 객체로 만든다(순수). 점 표기(`transitions.done`)를 중첩으로 펴고,
@@ -150,8 +155,12 @@ export function buildTicketConfig(provider, answers = {}) {
   }
   if (provider === 'github') {
     const host = typeof answers.host === 'string' ? answers.host.trim() : ''
+    const github = {}
     // 기본값과 같으면 적지 않는다 — 설정 파일은 **다른 것만** 담아야 읽을 때 의미가 있다.
-    return host && host !== 'github.com' ? {provider, github: {host}} : {provider}
+    if (host && host !== 'github.com') github.host = host
+    const mode = typeof answers['workLink.mode'] === 'string' ? answers['workLink.mode'].trim() : ''
+    if (mode) github.workLink = {mode}
+    return Object.keys(github).length > 0 ? {provider, github} : {provider}
   }
   const jira = {}
   for (const [key, value] of Object.entries(answers)) {
@@ -209,8 +218,6 @@ export function assertAllowedKeys(answers = {}, provider = 'jira') {
   )
 }
 
-/** 하위호환 별칭. 이름이 하던 주장(비밀을 막는다)보다 실제가 넓어졌다. */
-export const assertNoSecrets = assertAllowedKeys
 
 /**
  * 설정을 기록한다(side-effect). 호출자가 `--confirm` 게이트를 통과시킨 뒤에만 부른다.

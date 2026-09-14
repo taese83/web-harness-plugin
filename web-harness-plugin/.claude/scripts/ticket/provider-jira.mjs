@@ -1,7 +1,7 @@
 // 티켓 provider — Jira (순수부). 실행(REST)은 `provider-jira-exec.mjs`가 담당한다.
 //
 // 교차 형태 전제: **티켓은 Jira, 코드는 GHE.** 그래서 이 파일에는 PR·머지·브랜치가 없다 —
-// 그것은 VCS 축이고 `git-origin.mjs`·`claim-guard.mjs`가 이미 트래커를 모른 채 담당한다.
+// 그것은 VCS 축이고 `git-origin.mjs`·`work-link-run.mjs`가 트래커를 모른 채 담당한다.
 //
 // GitHub과 다른 것 셋 — 이 셋이 `transition`이 필요한 이유다:
 //  1. **상태가 open/closed가 아니다.** 워크플로우 status는 팀마다 다르고 이름도 다르다.
@@ -15,24 +15,10 @@
 // 본문에서는 HTML 주석이 숨겨지지 않아 **평문으로 보인다** — 보기 좋지는 않지만 마커 형식을
 // 트래커별로 가르지 않는 쪽을 택했다(가르면 왕복 파서가 둘이 된다).
 
-import {providedByPlan, readinessSection} from './readiness.mjs'
-import {buildRefsMarker} from './refs.mjs'
 
 /** FEAT 고유 라벨. Jira 라벨은 공백을 못 넣고 콜론이 버전에 따라 불안정해 하이픈을 쓴다. */
 export const featLabel = featureId => `feat-${featureId}`
 
-/** 브랜치 스탬프 라벨(GitHub의 `branch:`와 같은 역할, 문자셋만 Jira 규칙). */
-export const branchLabel = branch => {
-  if (!branch) return null
-  const label = `branch-${String(branch).replace(/[^\w.-]/g, '-')}`
-  return label.length <= 255 ? label : null // Jira 라벨 상한
-}
-
-/** 라벨 배열에서 브랜치 스탬프를 되읽는다(순수). */
-export function parseBranchFromLabels(labels) {
-  const found = (labels ?? []).find(l => typeof l === 'string' && l.startsWith('branch-'))
-  return found ? (found.slice('branch-'.length) || null) : null
-}
 
 /**
  * 설정 검증(순수). **이름을 지어내지 않는다** — 없으면 loud하게 막고 무엇이 없는지 말한다.
@@ -59,33 +45,28 @@ export function supportedTransitions(config) {
   return Object.keys(map).filter(phase => map[phase] !== null && map[phase] !== undefined && map[phase] !== '')
 }
 
-/**
- * FEAT로 기존 티켓을 찾는 JQL(순수). 라벨이 기본이고, 팀이 커스텀 필드를 쓰면 그쪽을 쓴다.
- * @param {Object} config  {projectKey, featureField?}
- * @param {string} featureId
- */
-export function featureJql(config, featureId) {
-  const project = `project = "${config.projectKey}"`
-  if (config.featureField) return `${project} AND "${config.featureField}" ~ "${featureId}" ORDER BY created ASC`
-  return `${project} AND labels = "${featLabel(featureId)}" ORDER BY created ASC`
-}
 
-/** Jira 본문 텍스트 — 동작 명세 + AC + 왕복 마커. 트래커 무관 마커를 평문으로 싣는다. */
-export function buildDescriptionText(draft, {branch = null, designRefs = [], readiness = undefined} = {}) {
-  const lines = [draft.body ?? '']
-  const criteria = draft.acceptanceCriteria ?? []
-  if (criteria.length > 0) {
-    lines.push('', '수용 기준', ...criteria.map(item => `- ${item}`))
+/**
+ * WORK 티켓 필드(순수). FEAT 티켓 빌더를 재사용하지 **않는다** — 그쪽은 `sourceKey`를 FEAT로 보고
+ * `feat-<키>` 라벨과 `web-harness:refs` 마커를 붙인다. WORK에 그걸 쓰면 ① `feat-WORK-…`라는 없는
+ * 축의 라벨이 생기고 ② 본문에 두 모델의 마커가 함께 실려 판독 입구가 `conflict`로 거부하며
+ * ③ 호출자가 만든 `work-…`·`plan-…`·`feat-<FEAT>` 라벨이 통째로 버려져 재개 조회가 **완전·0건**을
+ * 돌려준다(부재로 읽혀 재발행 = 중복). 그래서 본문도 라벨도 **호출자가 준 그대로** 싣는다.
+ * @param {Object} config  requireJiraConfig 통과분
+ * @param {{title: string, body: string, labels?: string[], components?: string[]}} draft
+ */
+export function buildWorkIssueFieldsFor(config, draft) {
+  const text = String(draft.body ?? '')
+  const fields = {
+    project: {key: config.projectKey},
+    issuetype: {name: config.issueType},
+    summary: draft.title,
+    description: String(config.apiVersion ?? '3') === '2' ? text : toAdf(text),
+    labels: [...new Set([...(draft.labels ?? [])].filter(Boolean))],
   }
-  if (designRefs.length > 0) {
-    lines.push('', '참고 정본 (게이트가 아니라 포인터다)', ...designRefs.map(ref => `- ${ref}`))
-  }
-  // 기획자가 채울 자리 — GitHub 본문과 **같은 절**이다(`readiness.mjs`가 정본).
-  const checklist = readinessSection({...readiness, provided: providedByPlan(draft)})
-  if (checklist) lines.push(...checklist)
-  const refs = draft.harnessRefs ?? {}
-  lines.push('', buildRefsMarker(refs.featureIds, refs.testCaseIds, {branch}))
-  return lines.join('\n')
+  const components = [...(draft.components ?? []), ...(config.components ?? [])].filter(Boolean)
+  if (components.length > 0) fields.components = [...new Set(components)].map(name => ({name}))
+  return {fields}
 }
 
 /**
@@ -104,29 +85,19 @@ export function toAdf(text) {
 }
 
 /**
- * TicketDraft → Jira 이슈 필드(순수). `TicketProvider.buildFields` 구현체.
- * @param {Object} config  requireJiraConfig 통과분
+ * 배정 신원을 **한 곳에서** 고른다(순수). 두 곳에서 각자 고르면 같은 사용자가 픽업에서는
+ * `accountId`, 보드에서는 `name`으로 나와 소유 판정이 갈린다 — 배정을 **쓰는** 어휘
+ * (`config.assigneeField`)가 있으면 그것을 먼저 본다.
+ * @param {object|null} user  Jira user 객체
+ * @param {string|null} assigneeField  'name'이면 DC 어휘, 그 외/미지정이면 accountId 우선
  */
-export function buildIssueFieldsFor(config, draft, {assignee = null, branch = null, designRefs = [], readiness = undefined} = {}) {
-  const text = buildDescriptionText(draft, {branch, designRefs, readiness})
-  // 하네스 라벨(왕복 키)이 먼저고 팀 공통 라벨이 뒤에 붙는다. **중복은 제거하되 하네스 것을
-  // 덮어쓰지 않는다** — `feat-…`은 조회 키라 사라지면 왕복이 끊긴다.
-  const labels = [...new Set([featLabel(draft.sourceKey), branchLabel(branch), ...(config.labels ?? [])].filter(Boolean))]
-  const fields = {
-    project: {key: config.projectKey},
-    issuetype: {name: config.issueType},
-    summary: draft.title,
-    description: String(config.apiVersion ?? '3') === '2' ? text : toAdf(text),
-    labels,
-  }
-  // 컴포넌트는 **그 프로젝트에 실재하는 이름**이어야 한다(없으면 Jira가 400). 비었으면 필드
-  // 자체를 넣지 않는다 — 빈 배열을 보내면 기존 값을 지우라는 뜻이 되는 설정이 있다.
-  const components = (config.components ?? []).filter(Boolean)
-  if (components.length > 0) fields.components = components.map(name => ({name}))
-  // assignee 표기는 배포마다 다르다(Cloud=accountId, DC=name) — 설정이 정하고 여기서 고르지 않는다.
-  if (assignee) fields.assignee = config.assigneeField === 'name' ? {name: assignee} : {accountId: assignee}
-  return {fields}
+export function assigneeIdentity(user, assigneeField = null) {
+  if (!user) return null
+  return (assigneeField === 'name'
+    ? user.name ?? user.accountId ?? user.displayName
+    : user.accountId ?? user.name ?? user.displayName) ?? null
 }
+
 
 /**
  * ADF → 평문. 왕복 마커를 되읽으려면 본문이 문자열이어야 한다(`refs.mjs`는 텍스트를 판다).
@@ -160,7 +131,7 @@ export function parseIssueResponse(payload) {
     // 컴포넌트도 **근거**다 — 팀이 분류 매핑을 선언했을 때만 분류로 쓰인다.
     components: (payload.fields?.components ?? []).map(item => item?.name).filter(Boolean),
     // Jira의 assignee는 **단수다** — GitHub의 다중 배정 경합이 구조적으로 없다.
-    assignees: assignee ? [assignee.accountId ?? assignee.name ?? assignee.displayName] : [],
+    assignees: assignee ? [assigneeIdentity(assignee)] : [],
     // ── 티켓 맥락(2026-09-11) ── 본문 밖에 사는 결정이 개발 에이전트에 닿지 않았다: 기획자의
     // 답은 코멘트에, 선행·관련 티켓은 링크에 있다. **`null`은 「가져오지 않았다」, `[]`는
     // 「없다」** — 빠진 필드를 없음으로 읽으면 AOA-3의 `미분류`와 같은 침묵이 된다.
@@ -203,20 +174,6 @@ export function isClosed(issue) {
   return key === 'done'
 }
 
-/** Jira 검색 응답 → 호출자가 쓰는 이슈 형태(순수). 없으면 null. */
-export function parseSearchResponse(payload) {
-  const issues = payload?.issues ?? []
-  const first = issues[0]
-  if (!first) return null
-  return {
-    ticketKey: first.key,
-    key: first.key,
-    url: first.self ?? null,
-    summary: first.fields?.summary ?? null,
-    labels: first.fields?.labels ?? [],
-    statusCategory: first.fields?.status?.statusCategory ?? null,
-  }
-}
 
 /** 생성 응답 → 이슈 형태(순수). */
 export function parseCreateResponse(payload) {
