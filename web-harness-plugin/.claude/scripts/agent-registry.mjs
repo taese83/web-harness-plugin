@@ -43,6 +43,7 @@ export const ORCHESTRATOR_AUTHORED_ARTIFACTS = [
   '_workspace/03_dev/work-plan-revisions/', // `claim`가 검토한 계획 판본(내용 digest 이름)
   '_workspace/03_dev/work-plan-review.md', // 검토표(생성물 — 되읽지 않는다)
   '_workspace/03_dev/work-plan-reviewed.json', // 직전 검토 판본 포인터(작업 삭제 대조의 기준)
+  '_workspace/03_dev/change-journal/', // 실패·미완 스폰의 복구 기록 — 오케스트레이터만 쓴다(죽은 스폰은 쓸 수 없다)
 ]
 
 export const AGENT_OWNERSHIP = {
@@ -68,8 +69,8 @@ export const AGENT_OWNERSHIP = {
     /^\.changeset\//, /^\.github\/(?:renovate\.json|dependabot\.yml)$/,
     /^\.github\/workflows\/(?:deploy[^/]*|publish|crawl(?:-[a-z0-9]+)*|refresh(?:-[a-z0-9]+)*)\.ya?ml$/,
     /^vercel\.json$/, /^apps\/[a-z0-9][a-z0-9_-]*\/vercel\.json$/,
-    /^_workspace\/03_dev\/db-changelog\.md$/, /^_workspace\/RELEASE\/changelog-draft\.md$/,
-    /^(?:package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|\.nvmrc|CLAUDE\.md)$/,
+    /^_workspace\/03_dev\/db-changelog\.md$/,
+    /^(?:package\.json|pnpm-workspace\.yaml|turbo\.json|pnpm-lock\.yaml|\.nvmrc)$/,
     /^apps\/[^/]+\/(?:package\.json|\.nvmrc)$/,
     /^(?:(?:[^/]+\/)+)?(?:tsconfig(?:\.[^.]+)?\.json|vite\.config\.ts|vitest(?:\.[^.]+)?\.config\.ts|playwright\.config\.ts)$/,
     /^(?:(?:[^/]+\/)+)?src\/vite-env\.d\.ts$/,
@@ -125,7 +126,6 @@ export const AGENT_OWNERSHIP = {
   'ux-researcher': [/^_workspace\/01_plan\/ux-brief(?:\.md|\/.+)$/],
   'visual-baseline-manager': [/^_workspace\/02_design\/visual-baseline-manifest\.json$/],
   'visual-contract-designer': [
-    /^_workspace\/02_design\/visual-qa-contract\.md$/,
     /^_workspace\/02_design\/visual-qa-contract\.json$/,
   ],
 }

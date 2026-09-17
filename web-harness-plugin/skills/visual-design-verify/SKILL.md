@@ -8,7 +8,6 @@ metadata:
   version: 1.2.0
   maturity: eval-covered
   updated: 2026-09-11
-  changelog: 테스트 준비가 source를 만든다는 사실을 표시하고 착수 전 승인을 요구한다 — 승인이 web-verify 준비 단계에만 있어 이 스킬로 바로 들어오면 없었다(감사 FINDING-002 후속). 이전 — UI 레인 이원화(M4) — 토큰 체인 서술을 레인 중립으로(mui theme.ts / tailwind-shadcn @theme).
 ---
 
 # Visual Design Verify
@@ -41,7 +40,6 @@ metadata:
 
 `visual-contract-designer`가 다음을 만든다.
 
-- `_workspace/02_design/visual-qa-contract.md`
 - `_workspace/02_design/visual-qa-contract.json`
 
 contract에 target, state, viewport, theme, locale, reference, threshold, stability, baseline policy를 고정한다. Figma 연결이 없으면 local export path와 SHA-256을 사용한다. 원격 URL을 읽을 수 있다고 가정하지 않는다.

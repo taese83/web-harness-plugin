@@ -27,6 +27,9 @@ Phase 1(기획)은 형태와 무관하게 **같은 에이전트**가 돈다. 해
 | `cli` | `lib-api-designer`(CLI 표면: 명령·플래그·exit code·stderr 계약) | `library`와 같은 두 단계 | `pack-verifier` |
 | `serverless-functions` | `api-schema-designer` | `/vite-serverless-hybrid` 계약의 `api/` handler | `api-contract-verifier` |
 
+Phase 4 열은 형태별 **추가** 검증이다. 기본 보고서(code·ux·integration·security·api-contract·test)는 형태와 무관하게
+`release-report-policy.mjs`의 `BASE_REPORTS`가 요구한다.
+
 **React 컴포넌트 패키지**(`library` + UI 런타임이 react)이면 스토리 작성은 구현과 **별도 스폰**이다.
 스토리는 구현과 같은 공개 API를 소비하므로 **의존 순서는 없다** — 그러나 같은 체크아웃에서는
 **병렬로 돌리지 않는다.** 둘 다 `developer`이고 갈리는 것은 스폰 범위뿐인데, 범위를 스폰별로
@@ -75,7 +78,7 @@ CLI 검증이 더해진다. **형태를 더하는 것이 빌더를 줄이는 경
 
 ## 5. 라이브러리 경로 상세
 
-`/dev-orchestrator`가 소유하던 워크플로를 여기로 옮겼다(2026-08-26). 진입점 이원화는 분류가
+진입점 이원화는 분류가
 **스팩 확정보다 앞에서 산문으로** 일어나게 만들었고, 확정된 `targetShapes`와 결속되지 않았다.
 
 **설계**: 기존 API 설계가 있으면 원본을 보존하고 `lib-api-designer`가 `api-design.md`로

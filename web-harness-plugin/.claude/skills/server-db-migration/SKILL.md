@@ -8,7 +8,6 @@ metadata:
   version: 1.2.0
   maturity: contract-only
   updated: 2026-08-04
-  changelog: seeding-contract 신설 — reference seed/dev seed/test fixture 3종 구분, dev seed의 production DSN 실행 차단, idempotent·스키마 동기화 규칙. 신규 합류 흐름은 pnpm migrate && pnpm seed:dev 두 명령으로 고정.
 ---
 
 # Server DB Migration
@@ -164,7 +163,7 @@ profiles 테이블, participations.user_id → profile_id 이전
 participations.attended BOOLEAN NOT NULL DEFAULT TRUE 추가
 ```
 
-각 migration의 목적, 영향 범위, 예상 downtime을 기록. existing-change이면 실행 owner의 `_workspace/03_dev/change-journal/{agent-name}.md`와 연동.
+각 migration의 목적, 영향 범위, 예상 downtime을 기록. 이유는 커밋 메시지에 남긴다.
 
 ### 7. Breaking migration 계약
 
