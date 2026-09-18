@@ -1,7 +1,7 @@
 // work-pickup-run.mjs — `pickup --work <티켓키>`: WORK 티켓을 개발에 넘기는 **실행부**.
 //
 // legacy 픽업과 **같은 것을 쓰고 같은 것을 쓰지 않는다**(I2·I6): 소유권 판정과 배정 직전
-// 재조회(TOCTOU)는 같은 함수, 트래커 쓰기는 배정·`in-progress` 전이·되돌림 알림 셋뿐이고
+// 재조회(TOCTOU)는 같은 함수, 트래커 쓰기는 배정·경합 시 자기 배정 회수·`in-progress` 전이·되돌림 알림뿐이고
 // 머지·완료 전이는 여기서도 하지 않는다. change-scope는 같은 파일·같은 키 집합으로 나간다.
 import {existsSync, readFileSync} from 'node:fs'
 import {join} from 'node:path'
@@ -15,7 +15,9 @@ import {readDeclaredLanguage} from './ticket-config.mjs'
 import {parseFeaturePlanUnits} from './plan-units.mjs'
 import {testCaseTexts} from './work-ticket-doc.mjs'
 import {providerCapabilities} from './ticket-provider.mjs'
-import {resolveCurrentBranch, resolveWorktreeStatus} from './git-origin.mjs'
+import {planRevisionsOnRemote, resolveCurrentBranch, resolveWorktreeStatus} from './git-origin.mjs'
+import {readSpecAt, withinScope} from '../validate-spawn-plan.mjs'
+import {normalizeLayerPath, testLayerPaths} from '../agent-registry.mjs'
 
 const readJson = (root, relative) => {
   const path = join(root, relative)
@@ -38,6 +40,18 @@ export function pickupOutcome(result) {
   return result?.ok ? 'started' : 'stopped'
 }
 
+/**
+ * 완료 조건은 이 작업의 TC를 인용하는 테스트다 — 소스와 **따로 둔** 테스트 레이어는 범위에 넣는다. 넣지 않으면
+ * 소유권 훅이 범위와 교집합을 내 테스트 파일 쓰기를 막는다. 소스와 겹치는 레이어(테스트를 소스 옆에 둠)는 넣지
+ * 않는다 — 넣으면 범위가 소스 전체로 넓어진다. 그때 테스트는 작업 경로 안에 둔다.
+ */
+export function separateTestLayers(spec) {
+  // 양쪽을 정규화해 비교한다 — 끝 슬래시 하나로 같은 경로를 다르다고 읽으면 범위가 소스 전체로 넓어진다.
+  const sources = Object.values(spec?.layerMap ?? {}).filter(path => typeof path === 'string' && path.trim()).map(normalizeLayerPath)
+  return testLayerPaths(spec).map(normalizeLayerPath)
+    .filter(test => !sources.some(source => withinScope(source, test) || withinScope(test, source)))
+}
+
 export async function runWorkPickup({root, ticketKey, developer, flags = {}, io = {}}) {
   const cli = await import('./cli.mjs')
   if (!ticketKey) return {ok: false, mode: 'work', bounce: {reason: 'ticket-key-required'}, guidance: '어느 티켓인지 키가 필요합니다. `pickup <티켓키> --developer <내 아이디>`로 부르세요.'}
@@ -47,6 +61,14 @@ export async function runWorkPickup({root, ticketKey, developer, flags = {}, io 
   // **판정 전에 origin 스냅샷을 갱신한다** — 로컬 계획·로컬 원장만 보면 남이 고친 계획을 못 보고
   // 「최신」이라 판정한다. 못 가져오면 막지 않고 `basis: local-snapshot`으로 **적는다**(legacy와 같다).
   const freshness = await cli.ensureRemoteFreshness({root, flags, io})
+  // 받지 않은 계획 개정이 원격에 있으면 로컬 계획으로 판정하지 않는다 — 대체된 작업을 집을 수 있다.
+  if (plan) {
+    const remotePlan = await (io.planRemote ?? planRevisionsOnRemote)({repoRoot: root, base: plan.baseBranch ?? null})
+    if (remotePlan.checked && remotePlan.commits.length > 0) {
+      return {ok: false, mode: 'work', bounce: {reason: 'plan-behind-remote', ref: remotePlan.ref, commits: remotePlan.commits},
+        guidance: `${remotePlan.ref}에 받지 않은 계획 개정이 있습니다. 받은 뒤 다시 집으세요.`, freshness}
+    }
+  }
   let state = foldWorkState(readWorkEvents(join(root, WORK_EVENTS_PATH)))
   const provider = io.provider
   // 계획이 없고 사람 티켓 경로도 쓸 수 없으면 **트래커를 부르기 전에** 멈춘다(읽기라도 부를 이유가 없다).
@@ -89,6 +111,11 @@ export async function runWorkPickup({root, ticketKey, developer, flags = {}, io 
   // 소유권이 먼저다 — 남이 잡고 있으면 판정을 더 돌 이유가 없다(legacy와 같은 순서·같은 함수).
   const assignment = computeAssignmentPlan({issue, developer})
   if (assignment.status === 'taken') return {ok: false, mode: 'work', assignment, bounce: {reason: 'assigned-to-other', by: assignment.by}}
+  // 나와 다른 사람이 함께 배정돼 있으면 내 것이라고 보지 않는다 — 회수하지 못한 경합 잔재와 사람이 둔 2인 배정은 구별되지 않는다.
+  if (assignment.status === 'already-mine' && (issue?.assignees ?? []).length > 1) {
+    return {ok: false, mode: 'work', assignment, bounce: {reason: 'multi-assign-detected', assignees: issue.assignees},
+      guidance: '이 티켓에 여러 사람이 배정돼 있습니다. 한 사람만 남긴 뒤 다시 집으세요.'}
+  }
 
   // TC 문장은 발행 때와 같은 곳(feature-plan)에서 읽는다 — 본문 항목 대조가 같은 문장을 기대해야 한다. 티켓 작업은 정의가 들고 있다.
   const units = ticket.context ? [] : (() => { try { return parseFeaturePlanUnits(readFileSync(join(root, '_workspace/01_plan/feature-plan.md'), 'utf8')) } catch { return [] } })()
@@ -108,7 +135,10 @@ export async function runWorkPickup({root, ticketKey, developer, flags = {}, io 
   // 진행 중인 다른 범위를 조용히 덮지 않는다 — 그 작업의 STALE 앵커가 사라진다(legacy와 같은 규율).
   const existing = cli.readChangeScopeFile(root)
   const existingId = existing?.workId ?? existing?.featureId ?? null
-  if (existing && existingId !== pick.changeScope.workId && !flags['replace-scope']) {
+  // PR을 연결했거나 머지로 끝난 작업의 범위는 더 지킬 것이 없다 — STALE 대조는 link 때 끝나 원장에 남았다.
+  // 이것을 「진행 중」으로 보면 개발자마다 두 번째 픽업부터 막힌다.
+  const settled = existingId ? Boolean(state?.works?.get(existingId)?.link?.prUrl || state?.works?.get(existingId)?.completed) : false
+  if (existing && existingId !== pick.changeScope.workId && !settled && !flags['replace-scope']) {
     return {ok: false, mode: 'work', bounce: {reason: 'active-change-scope', active: existingId},
       guidance: `${existingId} 작업을 이미 집어 둔 상태입니다. 그 작업을 끝내거나, 바꾸려면 --replace-scope를 붙이세요.`}
   }
@@ -127,8 +157,18 @@ export async function runWorkPickup({root, ticketKey, developer, flags = {}, io 
         guidance: '배정 직후 다른 개발자도 이 티켓을 가져갔습니다. 누가 할지 팀과 정하세요.'}
     }
     // GitHub의 배정은 **덧붙임**이라 동시에 집으면 둘 다 자기 이름을 본다 — 소유가 하나인지도 본다.
+    // 남이 먼저 혼자 보고 시작했을 수 있으므로 **남을 본 쪽이 물러난다**. 동시에 보면 둘 다 물러나고 다시 집으면 된다.
+    // 그대로 두면 둘 다 「내 배정」으로 읽혀 보드와 재픽업에서 같은 작업을 둘이 시작한다.
     if (assignees.length > 1) {
-      return {ok: false, mode: 'work', bounce: {reason: 'multi-assign-detected', assignees},
+      let unassignError = null
+      const released = typeof provider.unassign === 'function'
+        ? await provider.unassign(ticketKey, developer).then(() => true, error => { unassignError = String(error?.message ?? error).slice(0, 200); return false }) : false
+      if (released) {
+        return {ok: false, mode: 'work', bounce: {reason: 'assigned-to-other', by: assignees.find(login => login !== developer) ?? null},
+          guidance: '같은 때 다른 개발자도 이 티켓을 집어 물러났습니다. 다른 작업을 고르거나 잠시 뒤 다시 집으세요.'}
+      }
+      return {ok: false, mode: 'work', bounce: {reason: 'multi-assign-detected', assignees,
+        ...(unassignError ? {unassign: {attempted: true, error: unassignError}} : {})},
         guidance: '두 사람이 같은 티켓에 배정돼 있습니다. 누가 할지 팀과 정하세요.'}
     }
   }
@@ -156,8 +196,15 @@ export async function runWorkPickup({root, ticketKey, developer, flags = {}, io 
   // 이미 있던 경로를 대상으로 적은 기반 작업이 아무것도 하지 않고 통과하는 것을 막는 앵커다.
   const {projectRefDigest} = await import('./work-link.mjs')
   const digestOf = io.refDigest ?? projectRefDigest(root)
+  // 같은 작업을 다시 집으면(계획 개정 뒤 등) **처음 찍은 지문을 잇는다** — 이미 고친 대상을 새 기준선으로 찍으면
+  // 한 일이 「대상이 그대로다」로 읽혀 연결이 막힌다.
+  // 되돌린(reopen) 작업은 잇지 않는다 — 되돌림이 대상을 다 지우지 못했으면 옛 지문 때문에 빈 PR이 「바뀌었다」로 읽힌다.
+  const earlier = existing?.workId === pick.changeScope.workId && !state?.works?.get(pick.changeScope.workId)?.reopened
+    ? new Map((Array.isArray(existing.checks) ? existing.checks : []).filter(check => check.checkId && check.baseline).map(check => [check.checkId, check.baseline])) : new Map()
   pick.changeScope.checks = pick.changeScope.checks.map(check => ({...check,
-    baseline: Object.fromEntries(check.targetRefs.map(ref => [ref, digestOf(ref)]))}))
+    // 없던 대상의 지문은 null이다 — 「기록 없음」과 구별해 키가 있으면 그 값을 잇는다.
+    baseline: Object.fromEntries(check.targetRefs.map(ref => [ref, Object.hasOwn(earlier.get(check.checkId) ?? {}, ref) ? earlier.get(check.checkId)[ref] : digestOf(ref)]))}))
+  pick.changeScope.ALLOWED_PATHS = [...new Set([...pick.changeScope.ALLOWED_PATHS, ...separateTestLayers(readSpecAt(root))])]
   const written = cli.writeChangeScopeFile(root, pick.changeScope)
   // 무엇을 보고 판정했는지 결과에 남긴다 — 재지 못한 것(`statusUnknown`)을 「깨끗하다」로 접지 않는다.
   return {ok: true, mode: 'work', dryRun: false, assignment, transition, changeScope: pick.changeScope, changeScopePath: written, freshness, worktree: working, ...(ticket.extra ?? {})}
