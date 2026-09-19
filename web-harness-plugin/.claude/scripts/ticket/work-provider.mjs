@@ -39,6 +39,7 @@ export function parseWorkSearch(payload, {fetched = null} = {}) {
       // **배정을 안 물었으면 `null`이다** — 「미배정」과 「안 물어봤다」를 섞으면 보드가 남이
       // 잡고 있는 작업을 「집을 수 있다」로 보여준다. 신원을 **무엇으로 부르는가**는 트래커의
       // 어휘라 여기서 고르지 않는다 — 실행부가 `assigneeIdentity`로 한 번만 고른다.
+      resolution: issue.fields?.resolution?.name ?? null, doneAt: issue.fields?.resolutiondate ?? null,
       assigneeRequested: Boolean(issue.fields && 'assignee' in issue.fields),
       assigneeUser: issue.fields?.assignee ?? null})),
     total,
@@ -46,6 +47,155 @@ export function parseWorkSearch(payload, {fetched = null} = {}) {
     nextCursor: total !== null && seen < total && !stalled ? String(seen) : null,
     ...(stalled ? {stalled: true} : {}),
   }
+}
+
+export const DEFAULT_COMPLETED_RESOLUTIONS = ['Fixed', 'Done']
+/**
+ * 트래커가 말하는 끝남(순수) — `completed`(한 일로 끝남) · `cancelled`(안 하기로 끝남) · `unresolved`(끝났는데 해결 사유가
+ * 없다 — 해결 화면 없는 워크플로우. 완료로도 취소로도 세지 않는다) · `null`(열려 있거나 모름).
+ * Jira는 상태 범주 `done`만으로는 모른다(Won't Fix·Duplicate도 done이다) — 해결 사유를 팀 설정과 대조한다.
+ * GitHub은 닫힌 이유로 가른다. 닫힌 이유가 없는 옛 이슈는 GitHub 기본값(완료)으로 본다.
+ */
+export function classifyTrackerDone(item, {completedResolutions = DEFAULT_COMPLETED_RESOLUTIONS} = {}) {
+  if (!item) return null
+  if (item.statusCategory !== undefined && item.statusCategory !== null) {
+    if (item.statusCategory !== 'done') return null
+    if (!item.resolution) return 'unresolved'
+    return completedResolutions.includes(item.resolution) ? 'completed' : 'cancelled'
+  }
+  if (String(item.state ?? '').toUpperCase() !== 'CLOSED') return null
+  const reason = String(item.stateReason ?? '').toUpperCase()
+  return reason === '' || reason === 'COMPLETED' ? 'completed' : 'cancelled'
+}
+
+/**
+ * 계획·등록 상태에 **지금의 끝남**을 겹친다(순수). 완료는 기록하지 않고 여기서 계산한다 — 기대 base에 머지된 PR(제목의 티켓 키)
+ * · 머지된 커밋(Jira Git Integration) · 트래커의 끝남 중 하나. 사람이 트래커에서 티켓을 **다시 열면**(`reopenedAt`) 그 뒤의
+ * 근거만 센다. 되돌림 PR(`Revert "[키] …"`)이 머지됐으면 그 전의 머지·커밋은 세지 않는다. 트래커에서 취소된 작업은
+ * 취소 뒤의 머지만 취소를 이긴다(시각을 모르면 취소를 지킨다). `links`는 이 클론의 연결 기록(로컬) — 멱등·표시용이다.
+ */
+export function withTrackerCompletion(state, items, {completedResolutions = DEFAULT_COMPLETED_RESOLUTIONS, mergeEvidence = new Map(),
+  prEvidence = new Map(), links = new Map()} = {}) {
+  const byKey = new Map((Array.isArray(items) ? items : []).map(item => [String(item.ticketKey),
+    {done: classifyTrackerDone(item, {completedResolutions}), doneAt: item.doneAt ?? null, reopenedAt: item.reopenedAt ?? null}]))
+  const after = (date, at) => Boolean(date) && Date.parse(date) > Date.parse(at)
+  const works = new Map([...(state?.works?.entries() ?? [])].map(([workId, entry]) => {
+    const key = entry.ticketKey ? String(entry.ticketKey) : null
+    let item = entry
+    const tracker = key ? byKey.get(key) : null
+    const pr = key ? prEvidence.get(key) : null
+    // 내 연결 기록 — 그 뒤에 다시 열었거나 되돌림 PR이 머지됐으면 끝난 연결이다(다시 집은 뒤 새 PR을 연결할 수 있게).
+    const link = key ? links.get(key) : null
+    if (link && !after(tracker?.reopenedAt, link.at) && !after(pr?.revertedAt, link.at)) item = {...item, link: {...link}}
+    // 사람이 트래커에서 다시 연 작업 — 그 뒤의 근거만 센다(되돌린 머지 위에서 후속이 열리지 않게).
+    if (tracker?.reopenedAt) item = {...item, reopened: {at: tracker.reopenedAt}}
+    if (pr?.revertedAt) item = {...item, reverted: {at: pr.revertedAt}}
+    if (item.completed) return [workId, item]
+    // 근거가 유효한가 — 재오픈·되돌림 뒤, 취소면 취소 뒤여야 한다.
+    const counts = date => Boolean(date) && !(item.reopened && !after(date, item.reopened.at)) && !(pr?.revertedAt && !after(date, pr.revertedAt))
+      && !(tracker?.done === 'cancelled' && !(tracker.doneAt && after(date, tracker.doneAt)))
+    // 기대 base에 머지된 PR이 먼저다 — 코드가 base에 있으면 선행은 끝났다(팀의 Done은 QA·배포를 기다릴 수 있다).
+    if (pr?.mergedAt && counts(pr.mergedAt)) {
+      return [workId, {...item, completed: {via: 'merge', prUrl: pr.url ?? null, at: pr.mergedAt}}]
+    }
+    const evidence = key ? mergeEvidence.get(key) : null
+    if (evidence && counts(evidence.date)) {
+      return [workId, {...item, completed: {via: 'commit', at: evidence.date, commit: evidence.commit, pr: evidence.pr, branch: evidence.branch}}]
+    }
+    if (!tracker?.done) return [workId, item]
+    if (item.reopened && !(tracker.doneAt && after(tracker.doneAt, item.reopened.at))) return [workId, item]
+    if (tracker.done === 'completed') return [workId, {...item, completed: {via: 'tracker', at: tracker.doneAt}}]
+    if (tracker.done === 'cancelled') return [workId, {...item, trackerCancelled: true}]
+    return [workId, {...item, trackerUnresolved: true}]
+  }))
+  return {...state, works}
+}
+
+/**
+ * 머지된 PR에서 티켓의 근거를 고른다(순수). 제목이 티켓 키로 시작하거나(`[AOA-19] …`·`#12 …`) 브랜치 이름에 키가 있는
+ * (`feature/AOA-19-login`) PR이고, 되돌림 PR(`Revert "…"`)이 머지됐으면 그 뒤의 PR만 센다. 둘 다 없으면 어느 티켓의 것인지 모른다.
+ * @param {{number?: number, title: string, headRefName?: string, mergedAt: string, url?: string}[]} prs 기대 base에 머지된 PR
+ * @returns {{url: string|null, number: number|null, mergedAt: string|null, revertedAt: string|null}|null}
+ */
+export function prEvidenceFromPrs(prs, {ticketKey}) {
+  // `Revert "…"`를 벗겨 몇 겹인지 센다 — 홀수 겹은 되돌림, 짝수 겹(`Revert "Revert "…""`)은 되돌림을 되돌린 재착륙이다.
+  const unwrap = title => {
+    let text = String(title ?? '').trim()
+    let depth = 0
+    for (let match = text.match(/^Revert "(.*)"\s*$/); match; match = text.match(/^Revert "(.*)"\s*$/)) { text = match[1]; depth += 1 }
+    return {text, depth}
+  }
+  // 되돌림 PR의 브랜치(`revert-17-feature/AOA-19-login`)도 키를 품는다 — 겹 수는 제목이 정한다.
+  // 브랜치의 `revert-<번호>-` 접두도 겹으로 센다 — 되돌림 PR의 제목을 고쳐도 되돌림으로 읽는다(둘 중 큰 겹).
+  const branchDepth = branch => { let text = String(branch ?? ''); let depth = 0; while (/^revert-\d+-/.test(text)) { text = text.replace(/^revert-\d+-/, ''); depth += 1 } return {branch: text, depth} }
+  const dated = (Array.isArray(prs) ? prs : []).filter(pr => Number.isFinite(Date.parse(pr?.mergedAt)))
+    .map(pr => { const byTitle = unwrap(pr.title); const byBranch = branchDepth(pr.headRefName); return {pr, text: byTitle.text, branch: byBranch.branch, depth: Math.max(byTitle.depth, byBranch.depth)} })
+    .filter(item => prNamesKey({title: item.text, branch: item.branch}, ticketKey))
+  const reverts = dated.filter(item => item.depth % 2 === 1).map(item => item.pr)
+  const revertedAt = reverts.map(pr => pr.mergedAt).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null
+  // 되돌림보다 앞선 머지를 세지 않는 것은 부르는 쪽(`withTrackerCompletion`)이 `revertedAt`으로 한 번만 가린다.
+  const hits = dated.filter(item => item.depth % 2 === 0).map(item => item.pr)
+    .sort((a, b) => Date.parse(b.mergedAt) - Date.parse(a.mergedAt))
+  if (hits.length === 0 && !revertedAt) return null
+  const hit = hits[0] ?? null
+  return {url: hit?.url ?? null, number: hit?.number ?? null, mergedAt: hit?.mergedAt ?? null, revertedAt}
+}
+
+/** Jira 변경 이력에서 **다시 연** 가장 최근 시각(순수) — 해결 사유가 있다가 비워진 때(워크플로우가 재오픈에서 해결을 지운다). */
+export function reopenedAtFromJiraChangelog(payload) {
+  const histories = Array.isArray(payload?.changelog?.histories) ? payload.changelog.histories : []
+  return histories.filter(history => (Array.isArray(history?.items) ? history.items : [])
+    .some(item => item?.field === 'resolution' && (item.from || item.fromString) && !(item.to || item.toString)))
+    .map(history => history.created).filter(at => Number.isFinite(Date.parse(at)))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null
+}
+
+/** GitHub 이슈 이벤트에서 다시 연 가장 최근 시각(순수). */
+export const reopenedAtFromGithubEvents = events => (Array.isArray(events) ? events : [])
+  .filter(event => event?.event === 'reopened' && Number.isFinite(Date.parse(event.created_at)))
+  .map(event => event.created_at).sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null
+
+const escapeRegex = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/**
+ * 브랜치 이름에 티켓 키가 한 토큰으로 있는가(순수) — `feature/AOA-19-login`·`AOA-19`·`fix/aoa-19`. 문자가 있는 트래커 키만 본다 —
+ * 숫자뿐인 GitHub 이슈 번호는 브랜치의 버전·날짜 숫자와 구별되지 않아 세지 않는다(제목으로만 잇는다).
+ */
+export const branchHasKey = (branch, ticketKey) => /[A-Za-z]/.test(String(ticketKey ?? ''))
+  && new RegExp(`(?:^|[/_.-])${escapeRegex(ticketKey)}(?![0-9A-Za-z])`, 'i').test(String(branch ?? ''))
+/**
+ * PR이 이 티켓의 것인가(순수) — 제목이 키로 시작하거나 브랜치 이름에 키가 있다. **제목이 우선이다** — 제목이 다른 트래커 키로
+ * 시작하면 브랜치는 보지 않는다(오래 쓰는 브랜치를 다른 티켓에 재사용해도 한 PR이 두 티켓을 끝내지 않게). 브랜치는 대소문자를
+ * 가리지 않는다(`fix/aoa-19` 관습), 제목은 트래커 표기 그대로 본다.
+ */
+const TITLE_TRACKER_KEY = /^(?:\[#?)?[A-Za-z][A-Za-z0-9]*-\d+(?![0-9A-Za-z])/
+export const prNamesKey = ({title, branch}, ticketKey) => titleStartsWithKey(title, ticketKey)
+  || (!TITLE_TRACKER_KEY.test(String(title ?? '').trim()) && branchHasKey(branch, ticketKey))
+/** 제목이 티켓 키로 시작하는가(순수) — `[AOA-19] …`·`#AOA-19 …`·`AOA-19 …`. `AOA-1`은 `AOA-19`로 시작하는 제목에 맞지 않는다. */
+export const titleStartsWithKey = (subject, ticketKey) =>
+  new RegExp(`^(?:\\[#?${escapeRegex(ticketKey)}\\]|#?${escapeRegex(ticketKey)}(?![\\w-]))`).test(String(subject ?? '').trim())
+/**
+ * 머지 근거(순수) — 티켓에 연결된 커밋(Jira Git Integration) 중 **GitHub 스쿼시 머지 커밋**: 기대 base 브랜치에 있고,
+ * 제목이 티켓 키로 시작하고 `(#PR번호)`로 끝나며, 머지 커밋이 아닌 것(`[AOA-19] … (#17)`). base에 직접 푸시·체리픽한 커밋,
+ * 키를 본문에서 언급만 한 커밋, 다른 저장소의 커밋, 되돌림 커밋, 시각 없는 커밋은 세지 않는다. 머지 커밋 방식과 되돌림
+ * 판정은 실측 전이라 쓰지 않는다(protected-core §4).
+ * @returns {{commit: string, date: string, branch: string, pr: string|null}|null} 가장 최근 근거
+ */
+export function mergeEvidenceFromCommits(commits, {ticketKey, baseBranch, repoName = null}) {
+  if (!ticketKey || !baseBranch) return null
+  const hits = (Array.isArray(commits) ? commits : []).map(commit => ({commit, subject: String(commit?.message ?? '').split(/\r?\n/)[0].trim()}))
+    .filter(({commit, subject}) => !commit.mergeCommit && titleStartsWithKey(subject, ticketKey) && /\(#\d+\)$/.test(subject)
+      && !/^Revert "/.test(subject) && Number.isFinite(Date.parse(commit.date))
+      && (repoName === null || commit.repository?.name === repoName) && (commit.branches ?? []).includes(baseBranch))
+    .sort((a, b) => Date.parse(b.commit.date) - Date.parse(a.commit.date))
+  if (hits.length === 0) return null
+  const {commit, subject} = hits[0]
+  return {commit: commit.commitId ?? null, date: commit.date ?? null, branch: baseBranch, pr: subject.match(/\(#(\d+)\)\s*$/)?.[1] ?? null}
+}
+
+/** 설정에서 완료로 볼 해결 사유(순수) — provider 이름 아래 설정을 본다. */
+export const completedResolutionsOf = (config, providerName) => {
+  const value = config?.[providerName]?.completedResolutions
+  return Array.isArray(value) && value.length > 0 ? value : DEFAULT_COMPLETED_RESOLUTIONS
 }
 
 /** 커서 해석(순수). 손상된 커서를 0으로 접으면 1페이지를 다시 읽고 그 위에서 완결을 계산한다 — loud하게 막는다. */
@@ -103,14 +253,14 @@ export const workSearchArgs = (repo, workId, limit = GITHUB_PAGE_LIMIT) => {
 
 /** GitHub 목록 인자(순수). `limit`에 닿으면 잘렸을 수 있다 — 그 사실을 호출자가 받는다. */
 export const workListArgs = (repo, limit = GITHUB_PAGE_LIMIT) => ['issue', 'list', '--repo', repo, '--state', 'all',
-  '--json', 'number,title,labels,state,body,assignees', '--limit', String(limit)]
+  '--json', 'number,title,labels,state,stateReason,closedAt,body,assignees', '--limit', String(limit)]
 
 /** gh 결과 해석(순수). 반환 수가 상한과 같으면 `complete: false` — 「전부」라고 말하지 않는다. */
 export function parseGithubWorkList(json, {limit = GITHUB_PAGE_LIMIT, indexLag = false} = {}) {
   const items = Array.isArray(json) ? json : []
   return {
     matches: items.map(item => ({ticketKey: String(item.number), summary: item.title ?? null,
-      labels: (item.labels ?? []).map(label => label?.name ?? label), state: item.state ?? null, body: item.body ?? null,
+      labels: (item.labels ?? []).map(label => label?.name ?? label), state: item.state ?? null, stateReason: item.stateReason ?? null, doneAt: item.closedAt ?? null, body: item.body ?? null,
       assignees: 'assignees' in item ? (item.assignees ?? []).map(person => person?.login ?? person) : null})),
     complete: items.length < limit && !indexLag,
     truncated: items.length >= limit,

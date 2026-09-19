@@ -222,3 +222,14 @@ export function classifyJiraError(message = '') {
  * 호출자는 이 값이 null이면 머지 후 `transition`을 능동 호출해야 함을 안다.
  */
 export const closeReference = () => null
+
+/**
+ * 사람이 읽는 코멘트를 Jira 위키 서식에 맞춘다(순수) — 인라인 코드(`x`)는 `{{x}}`로, 링크로 읽히는 대괄호는 이스케이프한다.
+ * 하네스 문안은 마크다운 관습으로 쓰여 있어 Data Center(v2)에서 백틱이 글자로 남고 `[…]`가 깨진 링크로 그려진다.
+ */
+export function toJiraWikiText(text) {
+  const escape = value => value.replace(/([[\]{}])/g, '\\$1')
+  // 중괄호가 든 코드는 고정폭(`{{…}}`)으로 감싸지 않는다 — Jira DC가 안쪽 `}`에서 고정폭을 끝낸다(실측). 이스케이프한 평문으로 둔다.
+  return String(text ?? '').split(/(`[^`\n]+`)/).map(part => (/^`[^`\n]+`$/.test(part)
+    ? (/[{}]/.test(part) ? escape(part.slice(1, -1)) : `{{${part.slice(1, -1).replace(/([[\]])/g, '\\$1')}}}`) : escape(part))).join('')
+}

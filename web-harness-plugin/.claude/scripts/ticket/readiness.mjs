@@ -82,9 +82,8 @@ export function bounceComment({featureId = null, reason, detail = null, items = 
     `${index + 1}. ${item.what}`,
     ...(item.why ? [`   ${copy.why}: ${item.why}`] : []),
   ])
+  // 사람이 읽는 글만 남긴다 — 기계 마커는 Jira(위키 서식)에서 글자 그대로 보인다. 중복을 가리는 기록은 개발자 로컬에 둔다.
   return [
-    // 기계 마커 — 중복 코멘트를 나중에 걷어내려면 **그때** 근거가 있어야 한다(§4 등록).
-    `<!-- web-harness:bounce reason=${reason}${featureId ? ` feat=${featureId}` : ''} -->`,
     copy.lead,
     '',
     `- ${copy.reason}: ${reasons[reason]} (\`${reason}\`)`,

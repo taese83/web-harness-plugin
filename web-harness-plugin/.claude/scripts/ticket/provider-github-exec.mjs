@@ -29,7 +29,7 @@ function gh(args, {host = 'github.com', timeoutMs = 30000, stdin = null} = {}) {
   })
 }
 
-export const workViewArgs = (repo, number) => ['issue', 'view', String(number), '--repo', repo, '--json', 'number,title,labels,state,body,assignees']
+export const workViewArgs = (repo, number) => ['issue', 'view', String(number), '--repo', repo, '--json', 'number,title,labels,state,stateReason,closedAt,body,assignees']
 // gh가 「그 번호의 이슈가 없다」고 답한 경우만 부재다 — 권한·네트워크 실패를 부재로 접지 않는다.
 const isIssueNotFound = error => /Could not resolve to an? (issue|Issue)/.test(String(error?.message ?? error))
 export const viewArgs = (repo, number) => ['issue', 'view', String(number), '--repo', repo, '--json', 'number,title,body,labels,assignees,comments,updatedAt']
@@ -39,7 +39,10 @@ export const labelEditArgs = (repo, number, {add = [], remove = []}) => ['issue'
 export const createArgs = (repo, fields) => [...ghCreateArgs(fields), '--repo', repo]
 // 픽업 시 개발 소유권 self-assign(청구≠픽업 분리) — 실행은 confirm 게이트 뒤 caller.
 export const assignArgs = (repo, number, login) => ['issue', 'edit', String(number), '--repo', repo, '--add-assignee', login]
-export const prStateArgs = prUrl => ['pr', 'view', prUrl, '--json', 'state,baseRefName']
+export const prStateArgs = prUrl => ['pr', 'view', prUrl, '--json', 'state,baseRefName,headRefName,title,mergedAt']
+/** 기대 base에 머지된 PR 목록 — 완료 판정의 근거(제목의 티켓 키). 상한에 닿으면 잘렸다고 알린다. */
+export const mergedPrListArgs = (repo, base, limit) => ['pr', 'list', '--repo', repo, '--base', base, '--state', 'merged', '--limit', String(limit),
+  '--json', 'number,title,headRefName,mergedAt,url']
 
 // 범용 gh 러너(실행부 경계 재노출) — executor CLI가 assign/comment 등 argv를 실제 스폰할 때
 // 쓴다. side-effect이므로 caller(cli)의 --confirm 게이트 뒤에서만 호출된다.
@@ -82,6 +85,24 @@ export function createGithubProvider({repo, host = 'github.com', exec = null}) {
      * 목록. gh는 커서를 주지 않으므로 상한에 닿으면 잘렸을 수 있다고 표시한다. **키를 주면** 잘린 목록에서 못 본
      * 키를 하나씩 직접 조회한다 — 이슈가 많은 저장소에서 보드가 오래된 WORK를 늘 「미상」으로 두지 않게.
      */
+    /** 사람이 다시 연 시각 — 이슈 이벤트의 가장 최근 `reopened`. 키마다 한 번 읽는다(머지 근거가 있고 열린 이슈만 부른다). */
+    async listReopens({keys}) {
+      const {reopenedAtFromGithubEvents} = await import('./work-provider.mjs')
+      const reopens = new Map()
+      const errors = []
+      for (const key of keys.map(String)) {
+        try {
+          // --paginate는 페이지마다 배열을 이어 붙인다(`][`) — 한 배열로 편다.
+          const out = String(await run(['api', '--paginate', `repos/${repo}/issues/${key}/events`])).trim()
+          const events = out ? JSON.parse(`[${out.replace(/^\[|\]$/g, '').replace(/\]\s*\[/g, ',')}]`) : []
+          const at = reopenedAtFromGithubEvents(events)
+          if (at) reopens.set(key, at)
+        } catch (error) {
+          errors.push({ticketKey: key, error: String(error?.message ?? error).slice(0, 120)})
+        }
+      }
+      return {reopens, errors}
+    },
     async listWorkIssues({keys = null, pageSize = 100}) {
       const json = JSON.parse(await run(workListArgs(repo, pageSize)))
       const parsed = parseGithubWorkList(json, {limit: pageSize})
@@ -118,10 +139,11 @@ export function createGithubProvider({repo, host = 'github.com', exec = null}) {
       const items = new Map()
       let complete = true
       for (const label of labels) {
-        const json = JSON.parse(await run(['issue', 'list', '--repo', repo, '--state', 'open', '--label', label, '--json', 'number,title,assignees', '--limit', '100']))
+        const json = JSON.parse(await run(['issue', 'list', '--repo', repo, '--state', 'open', '--label', label, '--json', 'number,title,assignees,labels', '--limit', '100']))
         if (Array.isArray(json) && json.length >= 100) complete = false
         for (const item of Array.isArray(json) ? json : []) {
-          items.set(String(item.number), {ticketKey: String(item.number), summary: item.title ?? null, assignees: (item.assignees ?? []).map(person => person?.login ?? person)})
+          items.set(String(item.number), {ticketKey: String(item.number), summary: item.title ?? null, assignees: (item.assignees ?? []).map(person => person?.login ?? person),
+            labels: (item.labels ?? []).map(label => label?.name ?? label)})
         }
       }
       return {items: [...items.values()], complete, ...(complete ? {} : {truncated: true})}

@@ -7,7 +7,7 @@
 // `fetch`는 주입 가능하다 — 테스트가 네트워크 없이 전 경로를 돌 수 있어야 한다(GitHub provider의
 // `exec` 주입과 같은 규율).
 
-import {toAdf, assigneeIdentity, buildWorkIssueFieldsFor, classifyJiraError, closeReference, fromAdf, isClosed, parseCreateResponse, parseIssueResponse, requireJiraConfig, resolveTransitionId, supportedTransitions, WORK_PROPERTY_KEY} from './provider-jira.mjs'
+import {toAdf, toJiraWikiText, assigneeIdentity, buildWorkIssueFieldsFor, classifyJiraError, closeReference, fromAdf, isClosed, parseCreateResponse, parseIssueResponse, requireJiraConfig, resolveTransitionId, supportedTransitions, WORK_PROPERTY_KEY} from './provider-jira.mjs'
 import {issueLinkBody, parseCursor, parseWorkSearch, workKeysJql, workRelationMode} from './work-provider.mjs'
 import {withWorkMarker} from './work-refs.mjs'
 import {DEV_TICKET} from './intake.mjs'
@@ -35,7 +35,8 @@ async function call(config, path, {method = 'GET', body = null, fetchImpl = null
   const doFetch = fetchImpl ?? globalThis.fetch
   if (typeof doFetch !== 'function') throw new Error('JIRA_FETCH_UNAVAILABLE: fetch를 쓸 수 없다')
   const version = String(config.apiVersion ?? '3')
-  const url = `${String(config.baseUrl).replace(/\/+$/, '')}/rest/api/${version}${path}`
+  // 애드온 API(`/rest/gitplugin/…`)는 표준 API 판본 경로 밖에 있다 — `/rest/`로 시작하면 그대로 붙인다.
+  const url = `${String(config.baseUrl).replace(/\/+$/, '')}${path.startsWith('/rest/') ? path : `/rest/api/${version}${path}`}`
   const response = await doFetch(url, {
     method,
     headers: {Authorization: authHeader(env), 'Content-Type': 'application/json', Accept: 'application/json'},
@@ -142,10 +143,10 @@ export function createJiraProvider({config, fetchImpl = null, env = process.env}
       const items = []
       let startAt = 0
       for (let guard = 0; guard < 10; guard++) {
-        const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=50&fields=summary,assignee`, options)
+        const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=50&fields=summary,assignee,labels`, options)
         const issues = Array.isArray(payload?.issues) ? payload.issues : []
         for (const issue of issues) {
-          items.push({ticketKey: issue.key, summary: issue.fields?.summary ?? null,
+          items.push({ticketKey: issue.key, summary: issue.fields?.summary ?? null, labels: issue.fields?.labels ?? [],
             assignees: issue.fields?.assignee ? [assigneeIdentity(issue.fields.assignee, config.assigneeField)].filter(Boolean) : []})
         }
         startAt += issues.length
@@ -157,10 +158,45 @@ export function createJiraProvider({config, fetchImpl = null, env = process.env}
       return {items, complete: false, truncated: true}
     },
     /** 키 목록을 페이지로 돈다. `cursor`는 다음 `startAt`이며 없으면 처음부터. */
+    /**
+     * 머지 근거 — Jira Git Integration 애드온이 티켓 키로 모은 커밋에서 기대 base의 커밋을 고른다(읽기 전용).
+     * 애드온이 없으면(모든 조회가 404) `available: false` — 호출자는 다른 근거로 간다. 키마다의 실패는 `errors`다.
+     */
+    async listMergeEvidence({keys, baseBranch, repoName = null}) {
+      const {mergeEvidenceFromCommits} = await import('./work-provider.mjs')
+      const settled = await Promise.all(keys.map(async key => {
+        try {
+          const payload = await call(config, `/rest/gitplugin/1.0/issues/${encodeURIComponent(key)}/commits`, options)
+          return {key: String(key), evidence: mergeEvidenceFromCommits(payload?.commits, {ticketKey: String(key), baseBranch, repoName})}
+        } catch (error) {
+          return {key: String(key), error: String(error?.message ?? error).slice(0, 120)}
+        }
+      }))
+      const failed = settled.filter(item => item.error)
+      if (settled.length > 0 && failed.length === settled.length && failed.every(item => /JIRA_HTTP_404/.test(item.error))) {
+        return {available: false, reason: 'Git Integration 애드온이 없다(커밋 조회 경로 404)', evidence: new Map()}
+      }
+      return {available: true, evidence: new Map(settled.filter(item => item.evidence).map(item => [item.key, item.evidence])),
+        errors: failed.map(item => ({ticketKey: item.key, error: item.error}))}
+    },
+    /** 사람이 다시 연 시각 — 변경 이력에서 해결 사유가 비워진 가장 최근 때. 키마다 한 번 읽는다(머지 근거가 있고 열린 티켓만 부른다). */
+    async listReopens({keys}) {
+      const {reopenedAtFromJiraChangelog} = await import('./work-provider.mjs')
+      const settled = await Promise.all(keys.map(async key => {
+        try {
+          const payload = await call(config, `/issue/${encodeURIComponent(key)}?fields=resolution&expand=changelog`, options)
+          return {key: String(key), at: reopenedAtFromJiraChangelog(payload)}
+        } catch (error) {
+          return {key: String(key), error: String(error?.message ?? error).slice(0, 120)}
+        }
+      }))
+      return {reopens: new Map(settled.filter(item => item.at).map(item => [item.key, item.at])),
+        errors: settled.filter(item => item.error).map(item => ({ticketKey: item.key, error: item.error}))}
+    },
     async listWorkIssues({keys, cursor = null, pageSize = 50}) {
       const startAt = parseCursor(cursor) // 손상된 커서를 0으로 접지 않는다 — 1페이지를 다시 읽고 완결을 잘못 계산한다
       const jql = workKeysJql(keys)
-      const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${pageSize}&fields=summary,labels,status,assignee`, options)
+      const payload = await call(config, `/search?jql=${encodeURIComponent(jql)}&startAt=${startAt}&maxResults=${pageSize}&fields=summary,labels,status,resolution,resolutiondate,assignee`, options)
       const parsed = parseWorkSearch(payload, {fetched: startAt})
       // 요청한 키 중 **못 본 것**을 함께 돌려준다 — 「조회했는데 없다」와 「이 페이지에 없다」는 다르다.
       const observed = new Set(parsed.matches.map(item => item.ticketKey))
@@ -220,7 +256,9 @@ export function createJiraProvider({config, fetchImpl = null, env = process.env}
   // 사내 배포가 DC(v2)라 파일럿에서는 드러나지 않는 형태다.
   const commentBody = text => (String(config.apiVersion ?? '3') === '2' ? String(text) : toAdf(String(text)))
   provider.comment = async (key, text) => {
-    await call(config, `/issue/${encodeURIComponent(key)}/comment`, {...options, method: 'POST', body: {body: commentBody(text)}})
+    // 하네스 코멘트는 사람이 읽는 평문이다 — 위키 서식(v2)에서는 인라인 코드·대괄호가 깨지지 않게 옮긴다(본문 서식은 따로다).
+    const readable = String(config.apiVersion ?? '3') === '2' ? toJiraWikiText(text) : text
+    await call(config, `/issue/${encodeURIComponent(key)}/comment`, {...options, method: 'POST', body: {body: commentBody(readable)}})
     return {ticketKey: String(key), commented: true}
   }
 

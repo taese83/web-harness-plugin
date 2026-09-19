@@ -4,8 +4,11 @@
 // 그대로 집히던 시기가 있었다(2026-08-30) — 표시와 게이트가 갈라지면 표시는 장식이 된다.
 // 그래서 `pickupable`은 픽업이 실제로 막는 것(등록·미해결 결정·선행 등록·소유)과 같은 축이다.
 //
-// 선행은 **머지로 끝났을 때만** 끝난 것이다(원장 `work-completed`) — 링크는 완료의 주장이라 세지 않는다.
+// 선행이 끝났다는 것은 연결한 PR의 머지·머지된 커밋 또는 트래커의 끝남이다(계약 「완료」 절) — 링크는 완료의 주장이라 세지 않는다.
 const list = value => (Array.isArray(value) ? value : [])
+/** 완료의 근거 — merge(연결한 PR의 머지) · commit(기대 base의 티켓 키 커밋) · tracker(트래커의 끝남). */
+const viaOf = completed => (completed ? (['tracker', 'commit'].includes(completed.via) ? completed.via : 'merge') : null)
+
 
 /**
  * @param {{plan: object, view: object, state: object, issuesByWork?: Map<string, object>|null,
@@ -42,6 +45,7 @@ export function buildWorkBoard({plan, view, state, planDigest = null, issuesByWo
         : planDigest && publishedWith !== planDigest ? 'stale-plan' : null
     const blockedReason = registration !== 'published' ? `not-registered:${registration}`
       : registered?.completed ? 'completed'
+      : registered?.trackerCancelled ? 'cancelled-in-tracker'
       : staleness ? staleness
         : row.status === 'blocked-decision' ? 'decision-unresolved'
           : incompleteDeps.length > 0 ? 'dependency-incomplete'
@@ -60,7 +64,7 @@ export function buildWorkBoard({plan, view, state, planDigest = null, issuesByWo
       blockedReason,
       incompleteDeps,
       linked: registered?.link?.prUrl ?? null,
-      completed: Boolean(registered?.completed),
+      completed: Boolean(registered?.completed), completedVia: viaOf(registered?.completed),
       unlocks: row.unlocks ?? 0,
     }
   })
@@ -69,10 +73,12 @@ export function buildWorkBoard({plan, view, state, planDigest = null, issuesByWo
   } else if (!lookupComplete) {
     notes.push('트래커 목록을 끝까지 읽지 못했습니다. 못 읽은 작업의 담당자는 비어 있게 나오지만 담당자가 없다는 뜻은 아닙니다.')
   }
-  const linkedNotMerged = rows.filter(row => row.linked && !row.completed).length
+  const linkedNotMerged = rows.filter(row => row.linked && (!row.completed || row.completedVia === 'tracker')).length
   if (linkedNotMerged > 0) {
-    notes.push(`PR은 연결됐지만 아직 머지를 확인하지 못한 작업이 ${linkedNotMerged}건 있습니다. \`link --sync\`로 머지를 확인해야 다음 작업이 열립니다.`)
+    notes.push(`PR은 연결됐지만 아직 머지를 확인하지 못한 작업이 ${linkedNotMerged}건 있습니다. PR이 기대 base에 머지되면 완료로 읽힙니다.`)
   }
+  const unresolved = rows.filter(row => registrationOf(row.workId)?.trackerUnresolved).length
+  if (unresolved > 0) notes.push(`트래커에서 끝났지만 해결 사유가 없는 작업 ${unresolved}건은 완료로 세지 않았습니다.`)
   const stale = rows.filter(row => row.blockedReason === 'stale-plan').map(row => row.workId)
   if (stale.length > 0) {
     notes.push(`티켓을 만든 뒤 계획이 바뀐 작업이 ${stale.length}건 있습니다. 바뀐 계획을 검토하고 다시 발행해야 집을 수 있습니다.`)
@@ -112,7 +118,7 @@ export function buildTicketBoard({state, issuesByKey = null, devTickets = null, 
   const rows = []
   const works = [...(state?.works?.entries() ?? [])]
   const seen = new Set()
-  for (const [workId, item] of works.filter(([, entry]) => entry.origin === 'ticket')) {
+  for (const [workId, item] of works.filter(([, entry]) => entry.origin === 'ticket' && !entry.placeholder)) {
     seen.add(String(item.ticketKey))
     const issue = issuesByKey?.get(String(item.ticketKey)) ?? null
     const assignees = issue?.assignees ?? null
@@ -120,14 +126,14 @@ export function buildTicketBoard({state, issuesByKey = null, devTickets = null, 
     const shared = Boolean(assignees && assignees.length > 1 && assignees.includes(developer))
     const incompleteDeps = list(item.definition?.dependsOn).filter(dep => !state.works.get(dep)?.completed)
     const blockedReason = item.completed ? 'completed'
-      : item.withdrawn ? `ticket-${item.withdrawn.verdict}`
+      : item.trackerCancelled ? 'cancelled-in-tracker'
       : incompleteDeps.length > 0 ? 'dependency-incomplete'
         : !developer ? 'no-developer'
           : takenByOther === true ? 'assigned-to-other'
             : shared ? 'multi-assigned'
             : takenByOther === null && lookupComplete ? 'ticket-not-found' : takenByOther === null ? 'assignment-unknown' : null
     const next = item.completed ? '끝났습니다.'
-      : item.link?.prUrl ? '연결한 PR이 머지되면 `link --sync`로 확인합니다.'
+      : item.link?.prUrl ? '연결한 PR이 머지되면 끝납니다.'
       : blockedReason === null ? `\`pickup ${item.ticketKey}\`로 이어서 개발합니다.`
         : blockedReason === 'dependency-incomplete' ? '먼저 끝나야 할 작업이 남아 있습니다.'
           : blockedReason === 'no-developer' ? '`--developer <내 아이디>`를 붙여 다시 보면 집을 수 있는지 알 수 있습니다.'
@@ -137,9 +143,10 @@ export function buildTicketBoard({state, issuesByKey = null, devTickets = null, 
                 : blockedReason === 'ticket-not-found' ? '트래커에서 이 티켓을 찾지 못했습니다.'
                   : '다시 판정해 착수할 수 있는지 확인합니다.'
     rows.push({ticketKey: item.ticketKey, workId, title: item.definition?.title ?? null, stage: 'registered', lane: item.definition?.lane ?? null,
-      roles: list(item.definition?.roles), linked: item.link?.prUrl ?? null, completed: Boolean(item.completed), assignees,
+      roles: list(item.definition?.roles), linked: item.link?.prUrl ?? null, completed: Boolean(item.completed),
+      completedVia: viaOf(item.completed), assignees,
       // 계획 작업 행과 같은 축이다 — `assignment-unknown`은 재지 못한 표시이지 집을 수 있다는 뜻이 아니다.
-      pickupable: blockedReason === null, blockedReason, next, incompleteDeps, ...(item.withdrawn ? {withdrawn: item.withdrawn} : {})})
+      pickupable: blockedReason === null, blockedReason, next, incompleteDeps})
   }
   for (const [ticketKey, ticket] of state?.tickets?.entries() ?? []) {
     if (seen.has(ticketKey)) continue
@@ -153,8 +160,8 @@ export function buildTicketBoard({state, issuesByKey = null, devTickets = null, 
       blockedReason: othersTicket ? 'assigned-to-other' : startable ? null : `ticket-${ticket.verdict}`,
       next: othersTicket ? '다른 개발자가 맡고 있습니다.'
         : startable ? `\`pickup ${ticketKey}\`로 미리보기를 보고 확인하면 시작합니다.`
-        : ticket.verdict === 'needs-design' ? '디자인이 정해져야 시작할 수 있습니다. 필요한 것은 티켓 코멘트에 적혀 있습니다.'
-          : '먼저 정해야 할 것이 있습니다. 필요한 것은 티켓 코멘트에 적혀 있습니다.',
+        : ticket.verdict === 'needs-design' ? '디자인이 정해져야 시작할 수 있습니다. 확인한 요청은 티켓 코멘트에 남깁니다.'
+          : '먼저 정해야 할 것이 있습니다. 확인한 요청은 티켓 코멘트에 남깁니다.',
       needs: ticket.needs ?? null})
   }
   for (const item of list(devTickets)) {
@@ -192,9 +199,10 @@ export async function runWorkBoard({root, developer = null, flags = {}, io = {}}
   }
   const plan = readJson(WORK_PLAN_PATH)
   const analysis = readJson(WORK_ANALYSIS_PATH)
-  const state = foldWorkState(readWorkEvents(join(root, WORK_EVENTS_PATH)))
+  let state = foldWorkState(readWorkEvents(join(root, WORK_EVENTS_PATH)))
   const {hasDevTicketAxis} = await import('./ticket-work-run.mjs')
-  const ticketCapable = hasDevTicketAxis(io.ticketConfig) || [...state.works.values()].some(item => item.origin === 'ticket')
+  const {existsSync: exists} = await import('node:fs')
+  const ticketCapable = hasDevTicketAxis(io.ticketConfig) || exists(join(root, '_workspace/03_dev/ticket-assessments'))
   if ((!plan || !analysis) && !ticketCapable) {
     return {ok: false, mode: 'work', phase: 'PLAN_REQUIRED', guidance: '개발 계획이 없습니다. `claim`으로 계획을 만드세요. 사람이 만든 개발 티켓을 보려면 트래커 설정에서 어떤 분류가 개발 티켓인지 정하세요.'}
   }
@@ -205,44 +213,39 @@ export async function runWorkBoard({root, developer = null, flags = {}, io = {}}
   let issuesByWork = null
   let lookupComplete = false
   const trackerNotes = []
+  // 사람 티켓 — 내 판정·등록은 **내 로컬 기록**이고, 남의 티켓은 트래커의 개발 티켓 목록(분류·배정)으로만 안다.
+  let devTickets = null
+  const {readDevTickets, readLocalTicketWork, withTicketRegistrations} = await import('./ticket-work-run.mjs')
+  const local = readLocalTicketWork(root)
+  state = withTicketRegistrations(state, local.registrations, local.verdicts)
+  const unreadable = local.registrations.filter(item => item.error).length
+  if (unreadable > 0) trackerNotes.push(`내 등록 기록 ${unreadable}건을 읽지 못했습니다. 그 티켓은 다시 판정하세요.`)
+  if (ticketCapable && provider && typeof provider.listDevTickets === 'function' && flags['no-tracker'] !== true) {
+    const read = await readDevTickets({provider, config: io.ticketConfig ?? {}})
+    if (read.checked || read.items.length > 0) devTickets = read.items
+    if (!read.checked) trackerNotes.push(read.items.length > 0 ? '개발 티켓 목록을 끝까지 읽지 못했습니다. 아직 판정하지 않은 티켓 일부가 빠졌을 수 있습니다.'
+      : `개발 티켓 목록 조회 실패 — 사람이 만든 티켓은 보이지 않는다: ${read.reason ?? ''}`)
+  }
   const keys = [...state.works.entries()].filter(([, item]) => item.status === 'published' && item.ticketKey).map(([, item]) => item.ticketKey)
-  if (provider && typeof provider.listWorkIssues === 'function' && keys.length > 0 && flags['no-tracker'] !== true) {
-    try {
-      // **커서를 따라간다.** 한 번만 부르고 「불완전」이라 적으면 원인이 절단인지 미순회인지 섞인다.
-      const items = []
-      let listed = await provider.listWorkIssues({keys})
-      items.push(...listed.items)
-      for (let guard = 0; listed.nextCursor && !listed.stalled && guard < 50; guard++) {
-        listed = await provider.listWorkIssues({keys, cursor: listed.nextCursor})
-        items.push(...listed.items)
-      }
-      lookupComplete = listed.complete === true
+  if (provider && keys.length > 0 && flags['no-tracker'] !== true) {
+    // 지금 상태는 트래커와 PR에 있다 — 배정·끝남·다시 연 시각·머지(`work-state-run.mjs`). 원장에는 계획·발행만 있다.
+    const {readTrackerWorkState} = await import('./work-state-run.mjs')
+    const read = await readTrackerWorkState({provider, state, root, plan, config: io.ticketConfig, io, keys})
+    state = read.state
+    trackerNotes.push(...read.notes)
+    lookupComplete = read.lookupComplete
+    if (read.items) {
       issuesByWork = new Map()
-      const byKey = new Map(items.map(item => [String(item.ticketKey), item]))
+      const byKey = new Map(read.items.map(item => [String(item.ticketKey), item]))
       for (const [workId, item] of state.works.entries()) {
         const found = item.ticketKey ? byKey.get(String(item.ticketKey)) : null
         if (found) issuesByWork.set(workId, {ticketKey: found.ticketKey, assignees: found.assignees ?? null})
       }
-      if (listed.truncated) trackerNotes.push('트래커 목록이 최대 개수에 닿았습니다. 그 뒤 작업은 반영되지 않았습니다.')
-      if (listed.stalled) trackerNotes.push('트래커 목록을 더 읽지 못하고 멈췄습니다. 목록이 완전하지 않습니다.')
-    } catch (error) {
-      // 조회 실패를 「배정 없음」으로 접지 않는다 — 로컬 기준임을 적고 배정은 미상으로 둔다.
-      trackerNotes.push(`트래커 조회 실패 — 로컬 계획·원장 기준이다(배정 미상): ${String(error?.message ?? error).slice(0, 160)}`)
     }
   }
   const board = plan && analysis ? buildWorkBoard({plan, view, state, planDigest: canonicalDigest(plan), issuesByWork, developer, lookupComplete})
     : {rows: [], notes: ['개발 계획이 없어 사람이 만든 개발 티켓만 보여 줍니다. 이 티켓들을 집는 데 계획은 필요 없습니다.']}
   // 사람이 만든 개발 티켓 절 — 트래커의 개발 티켓 목록은 분류 설정과 조회 능력이 있을 때만 읽는다(못 읽으면 그렇게 적는다).
-  let devTickets = null
-  if (ticketCapable && provider && typeof provider.listDevTickets === 'function' && flags['no-tracker'] !== true) {
-    try {
-      const listed = await provider.listDevTickets({config: io.ticketConfig ?? {}})
-      devTickets = listed.items
-      if (listed.complete !== true) trackerNotes.push('개발 티켓 목록을 끝까지 읽지 못했습니다. 아직 판정하지 않은 티켓 일부가 빠졌을 수 있습니다.')
-    } catch (error) {
-      trackerNotes.push(`개발 티켓 목록 조회 실패 — 판정 전 티켓은 보이지 않는다: ${String(error?.message ?? error).slice(0, 120)}`)
-    }
-  }
   const issuesByKey = issuesByWork ? new Map([...issuesByWork.values()].map(item => [String(item.ticketKey), item])) : null
   const specBoundary = (() => { const spec = readJson('_workspace/03_dev/spec.json'); return spec ? Boolean(spec.layerMap && Object.keys(spec.layerMap).length > 0) : false })()
   const tickets = ticketCapable ? buildTicketBoard({state, issuesByKey, devTickets, developer, lookupComplete, specBoundary}) : {rows: [], notes: []}
