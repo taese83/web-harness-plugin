@@ -60,7 +60,7 @@ package-scaffolder·tooling-scaffolder·test-scaffolder 3종을 합쳤다(2026-0
 4. 테스트 설정은 MSW `src/mocks/server.ts`를 재사용할 수 있게 둔다.
 5. 기본 code splitting은 Vite에 맡기고, bundle analyzer 근거가 있을 때만 `manualChunks`를 추가한다.
 6. `chunkSizeWarningLimit`를 높여 경고를 숨기지 않는다. 경고가 발생하면 route/library 단위 원인을 측정한다.
-7. 개발 서버에 가짜 CSP를 넣지 않는다. 프로덕션 CSP와 보안 헤더는 배포 계층의 설정과 브라우저 테스트로 검증한다.
+7. 개발 서버에 가짜 CSP를 넣지 않는다. 프로덕션 CSP와 보안 헤더는 배포 계층의 설정과 브라우저 테스트로 검증한다 — 정책 문자열은 `web-orchestrator/references/security-headers.md`(UI 레인·배포 대상별, Report-Only로 시작)를 따르고 **preview와 배포 헤더를 같은 함수·같은 env로** 만든다.
 8. 기존 repository가 Husky/lint-staged를 사용하거나 사용자가 Git hook을 요구할 때만 기존 정책을 보존·설정한다. greenfield 기본 품질은 package script와 CI이며 hook 도입·초기화는 사용자 확인 없이는 하지 않는다.
 9. `tech-stack.md` compatibility matrix에서 검증된 ESLint major의 Flat Config를 생성한다. 필수 plugin peer가 지원하지 않는 major로 올리지 않고 `.eslintrc*`는 생성하지 않는다.
 10. TypeScript 7은 선택한 plugin과 framework의 공식 호환성이 확인된 경우에만 사용하고, 기본 호환 프로필은 TypeScript 6으로 둔다.
@@ -68,7 +68,8 @@ package-scaffolder·tooling-scaffolder·test-scaffolder 3종을 합쳤다(2026-0
 12. local dev/preview는 `127.0.0.1`을 기본으로 하고 container/LAN 접근 요구가 있을 때만 `0.0.0.0`을 명시적으로 선택한다.
 13. Playwright `webServer`는 build 후 loopback preview를 사용하고 dev server를 release browser QA에 사용하지 않는다.
 14. 생성 직후 `eslint.config.*`, `playwright.config.*`, critical E2E bootstrap, package scripts의 파일/명령 closure를 대조한다. 하나라도 빠지면 완료하지 않는다.
-15. FSD import 경계(`no-restricted-imports`)는 `app → pages → widgets → features → entities → shared` 의존 방향으로 생성한다. `widgets`는 layout/component 설계가 cross-cutting UI 슬라이스(여러 화면 공용 헤더 클러스터 등)를 명세한 경우에만 **활성 레이어**로 포함하고, 미사용이면 경계 규칙과 alias에서 함께 제외해 죽은 레이어를 만들지 않는다. 활성화하면 pages는 widgets를, widgets는 features/shared를 import할 수 있고 shared는 어떤 상위도 import할 수 없다.
+15. FSD import 경계(`no-restricted-imports`)는 `app → pages → widgets → features → entities → shared` 의존 방향으로 생성한다. `widgets`는 layout/component 설계가 cross-cutting UI 슬라이스(여러 화면 공용 헤더 클러스터 등)를 명세한 경우에만 **활성 레이어**로 포함하고, 미사용이면 경계 규칙과 alias에서 함께 제외해 죽은 레이어를 만들지 않는다. 활성화하면 pages는 widgets를, widgets는 features/shared를 import할 수 있고 shared는 어떤 상위도 import할 수 없다. 스팩에 `layerDependencies`가 있으면 이 방향 대신 그것으로 규칙을 만든다 — 이 lint는 별칭만 보고, 상대경로까지는 `validate-layer-boundaries.mjs`가 대조한다.
+16. **vite 프로필**(adapter id `react-vite-spa`·`vite-serverless-hybrid`)에서 `tech-stack.md`가 `REACT_COMPILER: on`이면 `performance-patterns.md` §4의 설정을 그대로 적용한다 — `vite.config`에는 `reactCompilerPreset()`, `vitest.config`에는 **플러그인 직접**(`babel({plugins: ['babel-plugin-react-compiler']})`). preset은 client 환경에만 걸려 jsdom 테스트가 컴파일되지 않은 코드를 검증하게 된다. off거나 선언이 없으면 넣지 않는다. `next-app-fullstack`은 설정 경로(`next.config`)가 달라 이 설정을 쓰지 않는다 — 하네스가 아직 검증하지 않았다.
 
 1. `package.json`에 `@playwright/test`, `@axe-core/playwright`를 포함한 test dependency가 없으면 추가 필요성을 보고하고 사용자 확인을 받는다.
 2. product test file은 생성하지 않는다.

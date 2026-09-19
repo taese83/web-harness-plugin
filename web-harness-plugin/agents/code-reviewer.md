@@ -35,6 +35,9 @@ Read `web-harness-read skills/web-orchestrator/references/minimal-change-contrac
 비협상으로 정한 하한이라 "사소함"으로 버리지 않는다(I6). 다만 이것도 **변경점 범위 안**에서만
 본다 — 이번 변경이 만들거나 건드린 것만이며, 기존 코드의 오래된 위반을 캐러 가지 않는다.
 
+**예외 — 중복·재사용(검사 18)**은 결함 목록에 섞지 않고 「Duplication & Reuse」 절에 따로 적는다.
+그 절은 리팩토링 제안 전용이며 이번 변경점 안에서만 본다.
+
 발견이 없으면 "없음"이라고 적는다. 채우지 않는다.
 
 ## 핵심 역할
@@ -92,16 +95,17 @@ Read `web-harness-read skills/web-orchestrator/references/minimal-change-contrac
 
 ## 검사 순서
 
-콘텐츠 검색은 **Grep/Glob 도구**로 수행한다. Bash는 typed runner(`node .claude/scripts/...`)와 bounded 파일 읽기 명령에만 사용한다 — 전역 Bash 정책이 `grep`과 디렉토리 재귀 `rg`를 차단한다.
+콘텐츠 검색은 **Grep/Glob 도구** 또는 아래 보호 exclude를 붙인 재귀 `grep`으로 한다(대상 트리에 비밀 경로가 있으면 하위 디렉터리로 좁힌다). Bash는 그 밖에 typed runner(`node .claude/scripts/...`)와 bounded 파일 읽기에만 쓴다.
 
 1. `_workspace/04_qa/evidence/typecheck.json`과 `lint.json`의 실제 command/exit/source fingerprint를 확인한다. receipt가 없거나 stale이면 `BLOCKED`다.
 2. 추가 진단이 필요하면 오케스트레이터에 승인된 quality runner 재실행을 요청한다. verifier가 package script를 직접 실행하거나 임의 fallback으로 release PASS를 만들지 않는다.
 3. Grep 도구로 `export \*` 패턴을 `src/`에서 검색 — wildcard export 검사
 4. Grep 도구로 `class\*=|css-[a-zA-Z0-9]` 패턴을 `src/`에서 검색 — substring/generated selector 검사
-5. FSD import 방향: shared→features→entities import 있으면 위반
+5. 레이어 방향: `_workspace/04_qa/evidence/layer-boundaries.json`을 읽는다(없으면 `web-harness-script validate-layer-boundaries --project-root {project-root}`). `NOT_DECLARED`·`INCOMPLETE`·`NO_SPEC`은 통과가 아니라 "확인 불가"로 적는다
 6. **보안 정적 보조 검사**:
    - Grep 도구로 `dangerouslySetInnerHTML|localStorage|sessionStorage|indexedDB|console\.(log|debug)` 패턴을 `src/`에서 검색
-   - 최종 위협 판정과 dependency/CI 검사는 `security-reviewer`에 위임
+   - HTML 싱크(`dangerouslySetInnerHTML`·`innerHTML`·`insertAdjacentHTML`·`document.write`)는 공통 레이어의 `SafeHtml`(DOMPurify, 템플릿 `SAFE_HTML`)·`JsonLd`(템플릿 `JSON_LD`) 밖에 있으면 **FAIL**. `safe-html.tsx`의 DOMPurify 설정이 템플릿과 다르거나(`ADD_TAGS`·`ALLOW_UNKNOWN_PROTOCOLS`·hook·`setConfig`) `json-ld.tsx`가 `<` 이스케이프를 빼면 FAIL, 사유를 적은 lint 예외라도 sanitize를 거치지 않으면 FAIL. 사용자·외부 URL을 `href`·`src`·`window.open`·`location`에 넣는데 `toSafeHref`(http·https·mailto 허용) 같은 스킴 검사가 없으면 FAIL — React는 `javascript:`만 막고 `data:`는 통과시킨다
+   - 최종 위협 판정과 dependency/CI 검사는 `security-reviewer`에 위임. 템플릿 `main.tsx`의 `vite-preload-reloaded` 세션 표식은 비밀이 아니다
 7. **hook dependency 검사**:
    - hooks lint receipt와 `useCallback|useMemo|useEffect` 사용처를 확인한다.
    - callback/effect가 읽는 reactive value가 dependency에서 빠지면 stale closure WARN이다.
@@ -129,9 +133,12 @@ Read `web-harness-read skills/web-orchestrator/references/minimal-change-contrac
    - Grep 도구로 `autoFocus` 사용처를 `src/`에서 목록화
    - Menu/Popover 항목 클릭으로 트리거되는 인풋에 `autoFocus`만 있고 `useRef` + `requestAnimationFrame` 패턴이 없으면 WARN (포커스 충돌 위험)
 10. **a11y 정적 검사**: jsx-a11y lint 결과를 사용하고, 실제 keyboard/axe/viewport 판정은 `browser-verifier`에 위임
+   - Grep으로 `onPaste`를 찾아 붙여넣기를 **막는지** 본다 — `preventDefault` 뒤에 `clipboardData`를 읽어 칸에 채우면(분할 OTP의 정본 구현) 막은 것이 아니다. 값을 버리면 비밀번호·OTP·인증 필드는 **FAIL**(WCAG 3.3.8), 그 밖은 WARN
+   - Grep으로 `outline-none`·`outline: none`·`outline: 0`을 찾아 포커스를 받는 요소의 포커스 표시가 사라지는지 본다. 같은 파일·스타일시트에 `focus-visible`·`focus:` 대체(ring·outline)가 하나도 없으면 **FAIL**(2.4.7), 대체가 있는데 그 요소에 걸리는지 애매하면 WARN. 포커스를 받지 않는 요소(컨테이너·svg)는 제외한다. Tailwind v4는 forced-colors를 지키는 `outline-hidden`을 권한다
 10-1. **vendored 프리미티브 a11y 보존 검사** (`UI_LANE: tailwind-shadcn`일 때):
-   - Grep으로 `src/shared/ui/` 내 `@radix-ui/` import 파일을 목록화
-   - 해당 파일에서 Radix 구조 요소(`Portal`, `aria-*`/`role` props, focus 관련 배선)가 upstream 형상 대비 제거됐는데 한 줄 사유 주석이 없으면 **FAIL** — a11y가 수정 가능한 repo 소스로 이동한 레인의 안전 하한(I6, `component-gen/references/tailwind-shadcn-styling.md`의 보존 규칙)
+   - Grep으로 `src/shared/ui/` 내 `@radix-ui/`·`@base-ui/` import 파일을 목록화(shadcn은 두 기반을 모두 쓴다 — 한쪽만 보면 다른 쪽이 빈 집합으로 통과한다)
+   - dialog·alertdialog·sheet에 접근 가능한 이름(Title)이 없으면 **FAIL**
+   - 해당 파일에서 기반 프리미티브 구조 요소(`Portal`, `aria-*`/`role` props, focus 관련 배선)가 upstream 형상 대비 제거됐는데 한 줄 사유 주석이 없으면 **FAIL** — a11y가 수정 가능한 repo 소스로 이동한 레인의 안전 하한(I6, `component-gen/references/tailwind-shadcn-styling.md`의 보존 규칙)
    - `cn()` 병합 순서 역전(`cn(className, variants(...))` — 호출부 override가 무시됨)은 WARN
 11. **로컬 도메인 상태 정적 검사** (`state-contract.md`가 있을 때):
    - entity mutation에 `Partial<Entity>`가 사용되며 ID/reference/order/version/createdAt을 제외하지 않으면 FAIL
@@ -146,6 +153,7 @@ Read `web-harness-read skills/web-orchestrator/references/minimal-change-contrac
    - production 코드의 Mock transport import
    - runtime schema를 우회한 message assertion
 13. **미사용·고아 파일 검사** (리팩토링 후 잔재 감지):
+   - `_workspace/04_qa/evidence/deadcode.json`(knip receipt)이 `FAIL`이면 미사용 항목이 **있다** — 목록은 receipt에 없으므로 아래 grep과 재사용 목록으로 변경점 안의 후보를 찾는다. `BLOCKED`(스크립트 부재·의존성 드리프트)는 「확인 불가」다
    - `src/` 아래의 모든 `.tsx`/`.ts` 파일을 수집한 뒤 다른 소스 파일에서 단 한 번도 import되지 않는 파일을 WARN으로 기록한다
    - 단, `index.ts`, `main.tsx`, `App.tsx`, `*.d.ts`, `*.config.*`, `*.test.*`, `*.spec.*`는 제외한다
    - Grep 도구로 `from '.*{파일명}'` 패턴의 역참조 여부를 확인한다
@@ -167,6 +175,9 @@ Read `web-harness-read skills/web-orchestrator/references/minimal-change-contrac
      무시됨) 이 정적 대조가 유일한 사전 방어선이다
    - theme에 존재하지 않는 경로는 FAIL (시각 결함이 컴파일·빌드를 통과하는 유형)
 18. **중복·재사용성 검사** (리팩토링 제안 전용 — 결함 검사가 아님):
+   - 오케스트레이터가 넘긴 `reuse-inventory.mjs --since` 결과(`UNUSED_NEW_EXPORT`·`DUPLICATE_NAME`)가
+     있으면 그것부터 확인한다 — 이름 수준 신호이므로 실제로 같은 책임인지 코드를 열어 판정한다.
+     없으면 `web-harness-script reuse-inventory --project-root {project-root}`(텍스트)로 목록을 얻어 변경점만 대조한다
    - 신규·변경 코드가 기존 코드베이스의 유틸/훅/컴포넌트/상수/정책과 중복되는지, 기존 자산을 재사용할 수
      있었는데 새로 만든 부분이 있는지 확인한다 (유사 이름·시그니처·패턴을 Grep 도구로 탐색해 근거를 남긴다)
    - 같은 diff 안에서 동일 스펙(치수, 키 목록, 정책 값 등)이 여러 곳에 하드코딩되어 한쪽만 수정하면
@@ -228,7 +239,7 @@ PASS | WARN | FAIL | BLOCKED
 
 ## Security Warnings
 || File:Line | Detail | Severity ||
-|| src/foo.tsx:42 | dangerouslySetInnerHTML used | FAIL ||
+|| src/foo.tsx:42 | dangerouslySetInnerHTML outside SafeHtml | FAIL ||
 || src/bar.ts:10 | credential stored in browser storage | FAIL ||
 
 ## Accessibility (a11y) Warnings

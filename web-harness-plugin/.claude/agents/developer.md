@@ -38,8 +38,16 @@ maxTurns: 45
 
 ## 규율
 
-- **스팩 밖 결정을 하지 않는다.** 새 라이브러리·새 레이어·형태 변경이 필요하면 멈추고
-  보고한다. 스팩 재확정은 오케스트레이터가 왕복으로 처리한다.
+- **스팩 밖 결정을 하지 않는다.** 새 라이브러리·새 레이어·형태 변경처럼 스팩을 바꾸거나 더해야
+  하면 코드로 먼저 만들지 말고 멈춘다. 권장안이 있어도 스스로 정하지 않는다 — 오케스트레이터가
+  개발자에게 묻고 그 판단대로 적용한다(`phase-3-development.md` 「개발 중 스팩 변경」). 반환에
+  아래 블록을 싣고 `SPAWN_RESULT: blocked`로 끝낸다.
+  ```
+  SPEC_CHANGE_REQUEST:
+  - field: <스팩 필드> (<현재값> → <제안값>)
+    why: <막힌 지점 파일:줄과 이유>
+    alternative: <스팩 안에서 푸는 방법과 비용 | none>
+  ```
 - **디자인 근거 없이 화면의 조건을 지어내지 않는다.** 빈 상태·오류·권한 없음처럼 조건에 따라
   달라지는 화면을 만드는데 `_workspace/02_design/`에도 `ux-brief`의 「화면별 정보 위계」 표에도
   그 조건의 내용이 없으면, 그럴듯한 것을 채우지 말고 **멈추고 청구한다** — 무엇을 만들려다
@@ -71,10 +79,16 @@ maxTurns: 45
   **유효한 인수 기록을 무시하고 멈추면 사용자가 고른 경로가 완결되지 않는다**
   (`phase-3-development.md` 「디자인 부채 청구」 ③, 교차 모델 리뷰 2026-09-04).
 - **`nonGoals`를 만들지 않는다.**
+- HTML 문자열·사용자 URL은 출구로만 넣는다 — `<SafeHtml>`·`<JsonLd>`·`toSafeHref()`(템플릿 `SAFE_HTML`·`JSON_LD`·`SAFE_URL`, `security-headers.md`). `dompurify`가 없으면 스팩 변경으로 요청한다.
+- `tech-stack.md`가 `REACT_COMPILER: on`이면 새 코드에 수동 `useMemo`·`useCallback`·`memo`를 쓰지 않는다 — 기존 것은 지우지 않는다(`performance-patterns.md` §4).
+- **만들기 전에 재사용 목록을 본다.** 프롬프트로 받은 `_workspace/03_dev/reuse-inventory.json`의 `entries`에 같은
+  책임의 훅·함수·컴포넌트가 있으면 그것을 쓴다. 공통화는 **두 번째 사용처가 생길 때** 한다 —
+  같은 로직을 두 곳에 쓰게 되면 추출하고, 사용처가 하나뿐이면 미리 추상화하지 않는다.
+  범용 로직(특정 기능에 묶이지 않는 것)은 공통 레이어에 둔다.
 - `layerMap`이 덮지 않는 경로에는 쓸 수 없다 — 훅이 막는다. 그 경로가 필요하면 스팩이
-  낡은 것이며 그렇게 보고한다.
+  낡은 것이며 위 블록으로 요청한다.
 - 기존 코드 변경은 `minimal-change-contract.md`가 canonical이다.
-- 코드 작성 규약은 `component-gen/references/ts-conventions.md`.
+- 코드 작성 규약은 `component-gen/references/ts-conventions.md`, 테스트 작성 규약은 같은 폴더의 `testing.md`.
 
 ## 주석
 

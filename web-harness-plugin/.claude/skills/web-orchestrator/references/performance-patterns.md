@@ -19,6 +19,22 @@ const SettingsPage  = lazy(() => import('@pages/settings/ui/SettingsPage'))
 
 모든 페이지를 기계적으로 분할하지 않는다. 초기 route와 작은 페이지는 정적 import가 더 빠를 수 있다. route 크기, 이동 빈도, waterfall을 bundle report와 브라우저 trace로 측정한 뒤 분할하고 `<Suspense fallback={<PageSkeleton />}>`으로 감싼다.
 
+Data mode에서 **loader를 쓰는 라우트**는 `route.lazy`로 코드와 loader를 함께 당긴다 — 정적 loader + `React.lazy`면 loader가
+먼저 돌고 청크는 렌더할 때에야 받아 데이터 → 청크가 직렬이 된다. loader가 없는 라우트는 `React.lazy`로 충분하다
+(react-router 8.2.0에서 아래 함수형 `lazy` 타입 검사 확인).
+
+```tsx
+{
+  path: '/items/:id',
+  lazy: async () => {
+    const {ItemDetailPage, itemLoader} = await import('@pages/item-detail')
+    return {Component: ItemDetailPage, loader: itemLoader}
+  },
+}
+```
+
+배포가 이전 청크를 지우면 lazy import가 실패한다 — 템플릿 `MAIN_TSX`의 `vite:preloadError` 처리가 세션당 한 번 새로고침한다.
+
 ### 컴포넌트 레벨 — 조건부 적용 (developer 책임)
 
 조건부로 렌더링되는 무거운 컴포넌트(모달, 드로어, 차트, 에디터 등)는 컴포넌트 레벨에서도 분할한다.
@@ -116,6 +132,10 @@ export const VirtualList = ({items}: {items: Item[]}) => {
 
 ## 4. React 렌더링 최적화
 
+**순서: 측정 → 구조 → memo.** 느리다는 근거(React DevTools Profiler·Performance 패널의 trace)가 먼저다. 그다음
+구조로 푼다 — 자주 바뀌는 state를 쓰는 곳 가까이 내리고, 바뀌지 않는 내용은 `children`으로 받아 부모 리렌더에서 뺀다.
+memo는 그래도 남는 비용에만 쓴다.
+
 ```tsx
 // 비싼 계산은 useMemo로 메모이제이션
 const sortedItems = useMemo(
@@ -128,13 +148,38 @@ export const StatCard = memo(({title, value, trend}: StatCardProps) => (
   <Card>...</Card>
 ))
 
-// 자식에게 전달하는 콜백은 useCallback으로 안정화
+// 자식에게 전달하는 콜백은 useCallback으로 안정화 — useMutation 반환 객체는 참조가 매번 바뀌므로
+// 의존성에는 안정적인 mutate만 넣는다(@tanstack/query/no-unstable-deps)
+const {mutate: deleteItem} = useDeleteItem()
 const handleDelete = useCallback((id: string) => {
-  deleteMutation.mutate(id)
-}, [deleteMutation])
+  deleteItem(id)
+}, [deleteItem])
 ```
 
 **적용 기준**: 부모 리렌더가 잦고 자식이 실제로 변하지 않는 경우에만 적용. 불필요한 memo는 오히려 비용을 높인다.
+
+### React Compiler (`tech-stack.md`의 `REACT_COMPILER: on | off`)
+
+켜면 컴파일러가 메모이제이션을 맡는다 — **새 코드에 수동 `useMemo`·`useCallback`·`memo`를 쓰지 않고**, 기존 것은
+지우지 않는다(지우면 컴파일 결과가 달라질 수 있다). 생성 템플릿의 `eslint-plugin-react-hooks` 7 recommended가 이미
+컴파일러 규칙(purity·refs·set-state-in-effect 등)을 강제하므로 코드는 준비돼 있다. RHF `watch`·TanStack Table처럼
+`incompatible-library`가 보고하는 라이브러리를 쓰는 컴포넌트는 최적화에서 빠진다. 성능 이득은 trace로 확인하기 전까지
+주장하지 않는다.
+
+vite 프로필(`react-vite-spa`·`vite-serverless-hybrid`)에서 `environment-scaffolder`가 설정한다(Next는 설정 경로가 달라 아직 검증하지 않았다. devDependencies `@rolldown/plugin-babel`·`babel-plugin-react-compiler`·`@babel/core`):
+
+```ts
+// vite.config.ts
+import babel from '@rolldown/plugin-babel'
+import react, {reactCompilerPreset} from '@vitejs/plugin-react'
+plugins: [react(), babel({presets: [reactCompilerPreset()]}), svgr()]
+
+// vitest.config.ts — preset은 브라우저(client) 환경에만 걸린다. jsdom 테스트는 서버 경로로 돌아
+// preset이 빠지므로 **플러그인을 직접** 건다 — 그래야 테스트가 배포될 코드와 같은 코드를 검증한다.
+import babel from '@rolldown/plugin-babel'
+import react from '@vitejs/plugin-react'
+plugins: [react(), babel({plugins: ['babel-plugin-react-compiler']})]
+```
 
 ---
 
@@ -152,34 +197,89 @@ const handleDelete = useCallback((id: string) => {
 </head>
 ```
 
-React Router Framework/Data mode에서 해당 API가 실제 지원되는 경우의 다음 route prefetch:
+React Router **Framework mode**에서만 `<Link prefetch>`가 동작한다 — Data mode(`createBrowserRouter`, 이 하네스
+템플릿)·Declarative mode에서는 아무것도 하지 않는다(react-router 8 소스: framework context가 없으면 prefetch 비활성).
+Data mode에서는 진입 의도 시점(hover·focus)에 데이터와 코드를 직접 당긴다:
 ```tsx
-import {Link} from 'react-router'
-<Link to="/dashboard" prefetch="intent">대시보드</Link>
+const prefetchDetail = () => {
+  void queryClient.prefetchQuery(itemQueries.detail(id))
+  void import('@pages/item-detail/ui/ItemDetailPage')
+}
+
+<Link
+  to={`/items/${id}`}
+  onMouseEnter={prefetchDetail}
+  onFocus={prefetchDetail}
+>
+  상세
+</Link>
 ```
 
-Declarative mode의 일반 `<Link>`에 `prefetch`를 붙이지 않는다. preload/prefetch는 사용 확률, 데이터 비용, mobile network를 측정하고 적용한다.
+preload/prefetch는 사용 확률, 데이터 비용, mobile network를 측정하고 적용한다.
 
 ---
 
 ## 6. Web Vitals 측정 (developer 책임)
 
-```ts
-// src/shared/utils/webVitals.ts
-import {onCLS, onFCP, onINP, onLCP, onTTFB} from 'web-vitals'
+원인까지 보낸다 — 값만으로는 어느 요소·어느 단계가 느린지 알 수 없다(`web-vitals/attribution`).
 
-export const reportWebVitals = (onReport: (metric: {name: string; value: number}) => void) => {
-  onCLS(onReport)
-  onFCP(onReport)
-  onINP(onReport)
-  onLCP(onReport)
-  onTTFB(onReport)
+```ts
+// src/shared/utils/web-vitals.ts
+import {onCLS, onFCP, onINP, onLCP, onTTFB} from 'web-vitals/attribution'
+import type {MetricWithAttribution} from 'web-vitals/attribution'
+
+export type VitalReport = {
+  name: string
+  value: number
+  rating: string
+  id: string
+  navigationType: string
+  detail: Record<string, string | number | undefined>
+}
+
+const detailOf = (metric: MetricWithAttribution): VitalReport['detail'] => {
+  switch (metric.name) {
+    case 'INP':
+      return {
+        target: metric.attribution.interactionTarget,
+        inputDelay: metric.attribution.inputDelay,
+        processingDuration: metric.attribution.processingDuration,
+        presentationDelay: metric.attribution.presentationDelay,
+      }
+    case 'LCP':
+      return {
+        target: metric.attribution.target,
+        resourceLoadDelay: metric.attribution.resourceLoadDelay,
+        elementRenderDelay: metric.attribution.elementRenderDelay,
+      }
+    case 'CLS':
+      return {target: metric.attribution.largestShiftTarget}
+    default:
+      return {}
+  }
+}
+
+export const reportWebVitals = (send: (report: VitalReport) => void) => {
+  const handle = (metric: MetricWithAttribution) =>
+    send({
+      name: metric.name,
+      value: metric.value,
+      rating: metric.rating,
+      id: metric.id,
+      navigationType: metric.navigationType,
+      detail: detailOf(metric),
+    })
+  onCLS(handle)
+  onFCP(handle)
+  onINP(handle)
+  onLCP(handle)
+  onTTFB(handle)
 }
 ```
 
 ```tsx
 // src/main.tsx — consent와 sampling 정책을 적용한 RUM adapter로 전송
-import('@shared/utils/webVitals').then(({reportWebVitals}) =>
+import('@shared/utils/web-vitals').then(({reportWebVitals}) =>
   reportWebVitals(metric => rumClient.send(metric)),
 )
 ```
@@ -223,3 +323,45 @@ export const itemQueries = {
 ```
 
 React Query가 queryKey가 바뀌면 이전 요청에 abort signal을 보내므로, `api.get`에 `signal`을 전달하면 자동으로 취소된다.
+
+---
+
+## 9. 데이터 요청 waterfall (developer 책임)
+
+서로 기다릴 이유가 없는 요청이 **차례로** 나가면 화면이 요청 수만큼 늦게 뜬다. 번들 waterfall(§1)과
+별개이며 대개 더 크다.
+
+- **독립 쿼리는 같은 컴포넌트(또는 라우트)에서 함께 시작한다.** 부모가 A를 받아 렌더한 뒤에야 자식이
+  B를 시작하는 구조(부모 쿼리 → 자식 컴포넌트 쿼리)면 B를 부모로 끌어올리거나 부모에서 prefetch한다.
+  suspense 쿼리 여러 개는 `useSuspenseQueries`로 묶는다 — 연달아 `useSuspenseQuery`를 쓰면 직렬이 된다.
+- **lazy 라우트는 코드와 데이터를 함께 당긴다.** 라우트 loader나 링크 hover·진입 시점에
+  `queryClient.prefetchQuery(xxxQueries.detail(id))`를 부른다 — 코드 청크를 받은 뒤 렌더 중에 fetch가
+  시작되면 청크 → 요청이 직렬이 된다.
+- **정말 앞 결과가 필요한 요청만** 직렬로 둔다(`enabled: Boolean(user?.id)`). 그 의존은 쿼리 키에 드러난다.
+- 쿼리 키는 `queryFn`이 읽는 값을 전부 담는다 — 빠지면 필터를 바꿔도 캐시가 갱신되지 않는다. `QueryClient`는
+  렌더마다 만들지 않는다. 생성 템플릿은 둘 다 lint로 막는다(`@tanstack/eslint-plugin-query` `flat/recommended`).
+
+판정은 측정으로 한다 — Playwright trace(`trace: 'on-first-retry'` 또는 `--trace on`)나 브라우저 개발자 도구의
+Network 탭에서 같은 화면의 요청이 앞 요청 완료 직후에만 시작하면 waterfall이다. 추측으로 병렬화하지 않는다.
+
+---
+
+## 10. 입력 반응성 — INP (developer 책임)
+
+측정이 먼저다 — §6의 attribution이 느린 상호작용의 요소와 단계(`inputDelay`·`processingDuration`·`presentationDelay`)를 알려 준다.
+단계에 맞는 처방을 쓴다.
+
+- **처리가 길다**(`processingDuration`) — 급하지 않은 갱신은 `startTransition`으로 넘겨 입력 반응을 먼저 그린다. 제어 입력의
+  값 자체에는 쓰지 않는다(타이핑이 밀린다).
+- **느린 목록·검색 결과** — `useDeferredValue`로 이전 결과를 보여 주며 다시 그린다. 느린 자식은 `memo`로 감싸야 효과가 있다.
+- **React 밖의 긴 작업**(대량 파싱·정렬) — 약 50ms마다 메인 스레드에 양보한다. `scheduler.yield`는 Safari에 없으므로 폴백을 둔다.
+- **표시가 늦다**(`presentationDelay`) — 한 번에 그리는 DOM이 크다. 가상화(§3)나 단계적 렌더를 쓴다.
+
+```ts
+type SchedulerWithYield = {yield?: () => Promise<void>}
+
+export const yieldToMain = (): Promise<void> => {
+  const scheduler = (globalThis as {scheduler?: SchedulerWithYield}).scheduler
+  return scheduler?.yield ? scheduler.yield() : new Promise(resolve => setTimeout(resolve, 0))
+}
+```

@@ -19,6 +19,7 @@ shared/     레이어 없음 — 세그먼트만 존재 (api, ui, hooks, utils �
 
 ### 1. 단방향 import
 모듈은 자신보다 **아래 레이어**에서만 import할 수 있다. 위 방향 import는 무조건 금지다.
+스팩 `layerDependencies`가 이 방향을 담고, `validate-layer-boundaries.mjs`가 상대경로까지 대조한다.
 
 ```
 ✅ features → entities → shared
@@ -45,40 +46,47 @@ export * from './ui/FeatureComponent'
 ### 3. 같은 레이어 간 cross-import
 같은 레이어의 슬라이스끼리 직접 import는 기본적으로 피한다.
 
-- **Entities 레이어만** 예외적으로 `@x` 표기법 허용 (최소한으로만):
+- **Entities 레이어만** 예외적으로 `@x` 표기법 허용 (최소한으로만 — 레이어 방향 검사는 `@x`를 따로 구분하지 못한다):
   ```
   entities/chartA/@x/chartB.ts  ← chartB에서만 쓰는 별도 공개 API
   ```
 - **Features, Widgets** 레이어에서는 cross-import 대신 props/callback 주입(IoC) 패턴을 사용한다.
 
-## 레이어 결정 트리
+## 레이어 결정 트리 — 쓰는 곳에서 시작한다 (pages-first)
+
+**먼저 쓰는 곳 가까이 둔다.** 페이지 하나만 쓰는 UI·로직·API 호출은 그 페이지 슬라이스
+(`pages/{페이지명}/ui|model|api`)에 둔다. 아래 레이어로 내리는 것은 **실제로 두 번째 사용처가
+생겼을 때**이고, 그때 책임이 가장 좁은 레이어를 고른다. 두 곳에서 쓴다는 것만으로 새 레이어가
+생기지는 않는다 — 한 기능 안의 두 화면이면 그 기능 슬라이스로 충분하다(FSD v2.1).
 
 ```
-만들려는 것이 무엇인가?
+이 코드를 쓰는 곳이 어디인가?
 
-├─ 앱 전역 설정, 라우터, Provider?
-│   → app/
-
-├─ URL에 대응하는 페이지 컴포넌트?
-│   → pages/{페이지명}/
-
-├─ 여러 features를 합쳐서 만드는 독립적인 큰 UI 블록?
-│   (여러 페이지에서 재사용되는 사이드바, 헤더, 대시보드 패널 등)
-│   → widgets/{위젯명}/
-
-├─ 사용자가 직접 하는 행동/인터랙션 단위의 기능?
-│   (로그인, 차트 생성, 대시보드 공유, 세그먼트 필터 등)
-│   → features/{기능명}/
-
-├─ 도메인 데이터/모델/API?
-│   (Chart, Dashboard, Segment, User 등의 CRUD + 타입)
-│   → entities/{도메인명}/
-
-└─ 여러 레이어에서 공통으로 쓰는 유틸/UI/훅/상수?
-    (특정 도메인에 묶이지 않음)
-    → shared/{세그먼트명}/
-       예: shared/api, shared/ui, shared/hooks, shared/utils, shared/constants
+├─ 앱 전역 설정, 라우터, Provider → app/
+├─ 한 페이지에서만 쓴다 → pages/{페이지명}/ 안 (세그먼트: ui·model·api·lib)
+└─ 두 곳 이상에서 실제로 쓴다 — 무엇을 공유하는가?
+    ├─ 여러 기능을 조합한 큰 UI 블록(여러 페이지의 헤더·사이드바·패널) → widgets/{위젯명}/
+    ├─ 사용자 행동 단위의 기능(로그인, 차트 생성, 필터) → features/{기능명}/
+    ├─ 도메인 데이터·모델·API(여러 기능이 같은 엔티티를 읽는다) → entities/{도메인명}/
+    └─ 도메인에 묶이지 않는 유틸·UI·훅·상수 → shared/{세그먼트명}/
 ```
+
+**계획·컴포넌트 명세가 이미 배정한 슬라이스가 있으면 그것이 정본**이다 — 이 트리는 배정이 없는 코드에만 쓴다.
+내릴 때는 옮기고 **원래 자리에서 import**한다 — 두 벌을 두지 않는다. 레이어를 새로 만들어야 하면
+스팩 `layerMap`이 바뀌는 것이므로 스팩 변경 절차를 따른다(`phase-3-development.md` 「개발 중 스팩 변경」).
+
+## 상태는 어디에 두는가
+
+기본 안내다 — 기존 프로젝트의 관례(`architecture.pattern: existing`)가 있으면 그것이 우선한다.
+
+| 상태 | 둘 곳 | 주의 |
+|---|---|---|
+| 서버에서 온 데이터 | TanStack Query 캐시 | `useState`로 복사하지 않는다 |
+| 공유·북마크·뒤로가기가 되어야 하는 화면 상태(필터·정렬·탭·페이지) | URL search params | 읽을 때 스키마로 파싱한다 — URL은 사용자가 고칠 수 있는 입력이다. 검색어 입력은 `input-focus-ime.md`(IME 조합 중 URL 갱신 금지) |
+| 브라우저가 정본인 도메인 데이터(서버 없이 저장·복원) | 도메인 스토어 + 상태 계약 | `local-domain-state.md`를 따른다 — 명령·불변식·영속 마이그레이션이 필요하다 |
+| 폼 입력 | react-hook-form | 제출 전 값은 폼이 소유한다 |
+| 한 컴포넌트 안의 UI 상태 | `useState`·`useReducer` | 쓰는 곳 가까이 둔다 |
+| 위에 없는데 여러 화면이 함께 쓰는 클라이언트 상태 | Zustand 스토어 | 셀렉터는 원자 값이나 `useShallow`로 — 매번 새 객체를 돌려주면 무한 재렌더가 난다 |
 
 ## web-harness 슬라이스 구조 (세그먼트)
 
@@ -152,13 +160,13 @@ export const createChartMutation = {
 
 ## 자주 묻는 케이스
 
-| 만들려는 것 | 위치 |
-|---|---|
-| 차트 목록 API 호출 | `entities/chart/api/` |
-| 차트 생성 폼 + 제출 | `features/createChart/` |
-| 대시보드 편집 사이드패널 | `widgets/dashboardEditPanel/` |
-| 로그인 페이지 | `pages/login/` |
-| 날짜 포맷 유틸 | `shared/utils/` 또는 `shared/lib/` |
-| 전역 모달 관리 | `shared/modal/` |
-| 에러 바운더리 | `shared/ui/error/` 또는 `app/` |
-| 인증 상태 관리 | `shared/auth/` (현재 위치 유지) |
+| 만들려는 것 | 한 곳에서만 쓸 때 | 여러 곳에서 쓸 때 |
+|---|---|---|
+| 차트 목록 API 호출 | `pages/charts/api/` | `entities/chart/api/` |
+| 차트 생성 폼 + 제출 | `pages/{페이지}/ui/` | `features/createChart/` |
+| 대시보드 편집 사이드패널 | `pages/dashboard/ui/` | `widgets/dashboardEditPanel/` |
+| 로그인 페이지 | `pages/login/` | — |
+| 날짜 포맷 유틸 | 그 슬라이스의 `lib/` | `shared/lib/` |
+| 전역 모달 관리 | — | `shared/modal/` |
+| 에러 바운더리 | — | `shared/ui/error/` 또는 `app/` |
+| 인증 상태 관리 | — | `shared/auth/` (현재 위치 유지) |

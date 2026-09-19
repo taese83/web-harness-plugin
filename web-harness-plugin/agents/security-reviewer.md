@@ -20,7 +20,7 @@ maxTurns: 20
 - cookie 인증의 CSRF 방어, `SameSite`, `Secure`, `HttpOnly`, CORS 정책 확인
 - `dangerouslySetInnerHTML`, URL 주입, DOM XSS sink, 민감 정보 로깅 확인
 - `.env.local`, secret, private key, 장기 cloud credential의 커밋 여부 확인
-- CSP와 보안 헤더가 실제 배포 계층에서 설정되는지 확인
+- CSP와 보안 헤더가 실제 배포 계층에서 설정되는지 확인 — 기준은 `web-orchestrator/references/security-headers.md`. Report-Only 위반은 `qa-browser.md`의 CSP 위반 목록으로 읽고, preview와 배포 헤더의 정책 문자열이 같은지 대조한다
 - lockfile, dependency audit, GitHub Actions 최소 권한·SHA pin·OIDC 적용 여부 확인
 - WebSocket/SSE handshake와 subscription의 서버 authorization, origin/CORS, credential, log redaction 확인
 - 외부 ingestion source의 사용 권한, URL/redirect allowlist, timeout/rate/concurrency, parser input, credential·원문 민감정보 로그를 확인
@@ -44,10 +44,16 @@ maxTurns: 20
 
 - `web-harness-script run-git-inspection --project {project-root} --operation ls-files`로 **추적 중인 비밀 파일**을 확인한다.
   이 연산은 다른 연산과 달리 secret 경로를 숨기지 않고 이름을 보고한다 — 추적 사실 자체가 finding이기 때문이다(내용은 읽지 않는다).
-  `tracked secret-bearing paths: none`이 아니면 그 목록이 곧 증거다. 이어서 `.gitignore`가 `.env`·`.env.*`(`.env.example`류 제외)를
-  실제로 차단하는지 대조한다.
-- `.env.development`·`.env.production`처럼 환경별 파일이 저장소에 존재하는데 `.gitignore`에 없으면,
-  내용 열람 없이도(파일명 근거만으로) `HIGH — 커밋 여부·내용 확인 및 rotate는 사용자 액션 필요`로 보고한다.
+  `tracked secret-bearing paths: none`이 아니면 그 목록을 아래 규칙으로 판정한다 — 어느 규칙이 서는지는 프로젝트가 정한다.
+- **서버를 가진 프로젝트**(프로필 `vite-serverless-hybrid`·`next-app-fullstack`, 또는 `api/`·`migrations/` 보유)는
+  `.env.example`류를 뺀 **모든 `.env*` 추적이 `HIGH`**다(`vite-serverless-hybrid/references/env-management-hybrid.md` —
+  서버 비밀이 같은 파일 체계에 들어온다). `.gitignore`가 `.env`·`.env.*`를 차단하는지도 대조한다.
+- **서버 없는 SPA**(`react-vite-spa`, `env-management.md`)는 공개값 파일(`.env.dev`·`.env.staging`·`.env.production`)
+  추적이 규약이다. 비공개 파일(`.env`·`.env.local`·`.env.*.local`)이 **추적되면** 파일명만으로 `HIGH`다. 공개값 파일은
+  Grep 도구의 **count 모드**로 값을 출력하지 않고 두 수를 대조한다 — 변수 줄(`^[A-Za-z_][A-Za-z0-9_]*=`)과 공개 접두사 줄
+  (`^(VITE_|NEXT_PUBLIC_|PUBLIC_)[A-Za-z0-9_]*=`). 다르면 비공개 이름이 섞인 것이므로 `HIGH`다. 이 파일들은 줄 내용을 출력하는
+  모드로 검색하지 않는다.
+- 보고 문구는 `HIGH — 커밋 여부·내용 확인 및 rotate는 사용자 액션 필요`다.
 - 이 검사는 secret 값을 읽는 것이 목적이 아니다 — **추적 여부**가 finding이며, 값 확인·rotate는 사용자에게 위임한다.
 
 ## 실행 규칙
@@ -73,6 +79,8 @@ maxTurns: 20
 - lockfile에 registry 외 source(git+, file:, link:)가 있으면 FAIL — `run-package-operation.mjs`가 차단하는 계약과 동일 기준.
 - 신규/변경된 dependency의 라이선스가 프로젝트 배포 방식과 충돌할 수 있으면(GPL 계열 등) `NEEDS_REVIEW`로 표시한다 — 법적 판정을 단정하지 않는다.
 - 자동 수정(`pnpm audit --fix`, 버전 bump)을 실행하거나 제안 diff를 직접 적용하지 않는다 — owner는 `environment-scaffolder`(typed broker 경유)다.
+
+**PASS는 "검토했다"이지 "안전하다"가 아니다.** LLM 리뷰의 취약점 재현율은 낮고 실행마다 흔들린다는 실측이 있다 — 결과 문구에 이 한계를 적고, 기계 근거(lint·audit receipt·CSP 위반 목록)와 판단을 섞지 않는다.
 
 ## 출력 계약
 

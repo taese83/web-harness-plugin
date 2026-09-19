@@ -9,7 +9,7 @@ Phase 3의 늦은 통합 실패를 줄이기 위한 진단 게이트다. release
   머신에서 실행하므로 처음 한 번은 `--allow-host-execution`으로 승인받는다. 그 승인은
   `_workspace/03_dev/host-execution-grant.json`에 **프로젝트·호스트 결박**으로 기록되고,
   이후 게이트는 다시 묻지 않는다. 매 게이트·매 재시도마다 묻는 것은 판단이 아니라 의식이며
-  개발 단계 규율("확인 지점은 PR 직전 하나뿐")과 정면으로 어긋난다(2026-08-30). 되돌리려면
+  개발 단계 규율("확인 지점은 PR 직전과 스팩 변경뿐")과 정면으로 어긋난다(2026-08-30). 되돌리려면
   그 파일을 지운다. 승인이 깨졌거나 다른 머신·다른 프로젝트의 것이면 **다시 묻는다**.
 - raw package-manager 명령을 사용하지 않는다. 승인된 host에서는 `run-quality-gates.mjs --check {id} --allow-host-execution`, 격리 CI에서는 `WEB_HARNESS_ISOLATED_EXECUTION=1`을 사용한다.
 - gate 뒤 source가 바뀌면 이전 receipt는 진단 기록일 뿐이며 release evidence로 재사용하지 않는다.
@@ -29,6 +29,8 @@ Phase 3의 늦은 통합 실패를 줄이기 위한 진단 게이트다. release
 **개발 단계에서 사용자에게 가는 질문은 없다.** 기획·디자인·스팩·설계가 문서로 확정되고
 승인됐다면, 개발은 그 문서를 실행하는 일이다. 문서에서 도출되면 도출해서 진행하고,
 도출되지 않으면 선택지가 아니라 "상류 산출물의 이 부분이 비어 있다"는 `BLOCKED`다.
+예외는 개발 중 스팩 변경·추가가 필요해진 경우다 — 개발자에게 먼저 묻는다(`phase-3-development.md`
+「개발 중 스팩 변경」).
 
 그 `BLOCKED`는 **첫 줄을 쓰기 전에** 나야 한다. 하네스에는 `planning-readiness`(Phase 1
 진입)와 `design-readiness`(Phase 2 진입)가 있었는데 **개발 진입에는 관문이 없었고**, 대신
@@ -144,7 +146,7 @@ API contract/auth, route, Mock, component가 완료된 뒤:
    미구현인지 개명인지 보고, 미구현이면 만들고 개명이면 `layout-spec`을 고친다.
    실행 시점은 **Phase 4 릴리스**다 — 이 게이트 시점에는 여전히 사람·에이전트가 본다
 3. production build에서 Mock activation이 가능한 구조인지 정적 확인
-4. `typecheck`, `lint`
+4. `typecheck`, `lint`, 레이어 방향(`node .claude/scripts/validate-layer-boundaries.mjs --project-root {root} --json`)
 
 TIMESERIES_MODE에서 Mock이 의도적으로 뒤로 미뤄졌으면 transport interface와 지연 근거를 기록하고 Mock 항목만 `DEFERRED`로 둔다.
 
@@ -154,8 +156,13 @@ entity query, mutation/form/domain/realtime owner와 `developer`가 완료된 �
 
 1. requirement/UX risk → screen → owner → source trace
 2. loading/error/empty/partial/permission/destructive 연결
-3. `typecheck`, `lint`, `build`
-4. source mutation, unexpected lockfile/config change, production Mock boundary
+3. `typecheck`, `lint`, `build`, 레이어 방향 — 출력을 `_workspace/04_qa/evidence/layer-boundaries.json`에 저장한다.
+   `FAIL`이면 developer로 되돌린다. 미판정(`NOT_DECLARED`·`INCOMPLETE`, exit 3)은 선택 필드가 없거나 별칭을
+   못 읽은 것이라 막지 않고 체크포인트 보고에 적는다 — 통과로 세지 않는다
+4. 미사용 코드(진단 전용): `deadcode` 스크립트가 있으면 `run-quality-gates.mjs --check deadcode`로 receipt를 남긴다.
+   `FAIL`은 knip이 미사용 파일·export·의존성을 찾았다는 뜻이며 막지 않는다. receipt는 출력을 저장하지 않으므로
+   (비밀 유출 방지) 체크포인트 보고에 「미사용 코드 있음」으로 적고, 목록은 사람이 `pnpm deadcode`로 본다
+5. source mutation, unexpected lockfile/config change, production Mock boundary
 
 Gate C 통과 뒤 deployment/visual test source가 바뀌면 Phase 4에서 전체 profile과 evidence를 다시 확정한다.
 
