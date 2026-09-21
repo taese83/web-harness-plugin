@@ -32,6 +32,6 @@ PNG, test, source, config, package, contract는 수정하지 않는다.
 2. SHA-256은 64자리 lowercase hex만 허용한다.
 3. 기존 entry 변경이면 이전 hash와 새 hash를 함께 보고한다.
 4. threshold/mask 변경은 별도 승인 없이는 반영하지 않는다.
-5. `web-harness-read schemas/visual-baseline-manifest.schema.json` 형식을 따른다.
+5. `_workspace/.contracts/schemas/visual-baseline-manifest.schema.json` 형식을 따른다.
 6. 자신이 baseline을 승인하거나 `--update-snapshots`를 실행하지 않는다.
 

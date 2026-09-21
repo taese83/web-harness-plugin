@@ -233,7 +233,7 @@ record-only인 이유: ingestor는 `01_plan/feature-plan.md`를 직접 쓰므로
   frontmatter에 박을 수 없다. 절차·머리말·해시 주체는 `source-artifacts.md`「인증이 필요한 URL」이
   정본이다(여기에 옮겨 적지 않는다)
 
-**Figma MCP는 예외가 아니다** — ingestor가 읽기 전용 Figma 도구를 직접 갖는다(`web-harness-read agents/source-artifact-ingestor.md`). 링크만 있고 그 도구가 이 런타임에서 호출되지
+**Figma MCP는 예외가 아니다** — ingestor가 읽기 전용 Figma 도구를 직접 갖는다(`_workspace/.contracts/agents/source-artifact-ingestor.md`). 링크만 있고 그 도구가 이 런타임에서 호출되지
 않으면 `supplied`가 아니라 미해결 입력이며, `source-artifacts.md`「도구 부재의 처리」로 간다.
 
 **강도 차이를 밝힌다**: ingestor의 도구 제한(쓰기 도구·`get_design_context`·Bash 배제)은

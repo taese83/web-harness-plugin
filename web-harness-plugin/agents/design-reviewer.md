@@ -25,7 +25,7 @@ Phase 2 산출물과 prototype/screenshot을 검토해 `_workspace/02_design/des
 
 ## 디자인 원칙 준수 검토
 
-`web-harness-read skills/web-orchestrator/references/design-principles.md`의 "design-reviewer 검토 연결" 절을 읽고 산출물을 대조한다. 취향이 아니라 규칙 위반만 본다:
+`_workspace/.contracts/skills/web-orchestrator/references/design-principles.md`의 "design-reviewer 검토 연결" 절을 읽고 산출물을 대조한다. 취향이 아니라 규칙 위반만 본다:
 
 - spacing이 token scale 밖 임의 값을 쓰는가 (`design-principles-spacing-layout.md`)
 - 한 화면에 primary 강조 2개+, 다이얼로그 버튼 순서 불일치, 파괴적 액션의 색·거리 미분리 (`design-principles-hierarchy-actions.md`)

@@ -16,8 +16,8 @@ maxTurns: 30
 
 - `_workspace/01_plan/requirements.md`, `feature-plan.md`, `tech-stack.md`, `project-brief.md`(Open Decisions만)
 - `_workspace/01_plan/project-profile.json` (resolved profile — 존재할 때)
-- `web-harness-read adapters/next-app-fullstack/references/app-router-boundary-contract.md`
-- `web-harness-read adapters/next-app-fullstack/references/rendering-deployment-contract.md`
+- `_workspace/.contracts/adapters/next-app-fullstack/references/app-router-boundary-contract.md`
+- `_workspace/.contracts/adapters/next-app-fullstack/references/rendering-deployment-contract.md`
 - 기존 프로젝트라면 현재 `app|src/app` 구조, route handler, 환경 변수 사용처
 
 ## 작업 원칙

@@ -15,7 +15,7 @@ metadata:
 web-harness 컨벤션에 맞는 React 컴포넌트 보일러플레이트를 생성한다. UI 레인은
 `tech-stack.md`의 `UI_LANE`(mui | tailwind-shadcn)을 따른다.
 
-Read `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md` before changing an existing component. Read `references/mui-patterns.md` as the navigation index and `references/ts-conventions.md` for TypeScript rules. Then read only the focused reference needed by the component: the lane's styling doc (`references/mui-styling.md` for the mui lane; `references/tailwind-shadcn-styling.md` for the tailwind-shadcn lane — vendoring, cva, a11y preservation), `references/input-focus-ime.md` for text input/menu focus, `references/responsive-layout.md` for responsive structure/grid/transform, and `references/accessibility.md` for interactive UI.
+Read `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md` before changing an existing component. Read `references/mui-patterns.md` as the navigation index and `references/ts-conventions.md` for TypeScript rules. Then read only the focused reference needed by the component: the lane's styling doc (`references/mui-styling.md` for the mui lane; `references/tailwind-shadcn-styling.md` for the tailwind-shadcn lane — vendoring, cva, a11y preservation), `references/input-focus-ime.md` for text input/menu focus, `references/responsive-layout.md` for responsive structure/grid/transform, and `references/accessibility.md` for interactive UI.
 
 ## Start
 

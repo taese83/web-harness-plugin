@@ -14,7 +14,7 @@ metadata:
 
 Mock API를 실제 API 엔드포인트로 교체한다. `/web-orchestrator`로 완성된 프로젝트에서 사용한다.
 
-Read `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md` before the first source edit. 연동 대상 adapter와 integration path만 `ALLOWED_PATHS`로 두고 unrelated API client rewrite를 하지 않는다.
+Read `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md` before the first source edit. 연동 대상 adapter와 integration path만 `ALLOWED_PATHS`로 두고 unrelated API client rewrite를 하지 않는다.
 
 OpenAPI가 입력되거나 발견되면 `references/openapi-adoption-contract.md`를 읽는다. 현재 기능 endpoint만 선택하고 전체 spec 생성·기존 client 일괄 교체를 금지한다.
 
@@ -39,7 +39,7 @@ OpenAPI가 입력되거나 발견되면 `references/openapi-adoption-contract.md
 5. 해당 entity의 `api/queries.ts`와 `api/mutations.ts`에서 URL 확인
 6. real mode에서는 MSW 핸들러를 `bypass`한다. Mock mode 유지가 요구되면 삭제하지 않고 선택 endpoint의 동일 request/response/error contract로 갱신한다
 7. 실제 API 호출 테스트
-8. `_workspace/02_design/timeseries-architecture.md`가 있으면 `web-harness-read skills/timeseries-dashboard/references/mock-and-migration.md`를 읽고 snapshot과 realtime transport를 함께 전환한다
+8. `_workspace/02_design/timeseries-architecture.md`가 있으면 `_workspace/.contracts/skills/timeseries-dashboard/references/mock-and-migration.md`를 읽고 snapshot과 realtime transport를 함께 전환한다
 9. `runtime-data-contract.json`이 있거나 static snapshot에서 live API로 전환하면 `external-data-ingestion.md`를 읽는다. `ingestion-contract-designer`가 current mode, authoritative source, source precedence, freshness/fallback, build/deployment 계약을 먼저 갱신한다
 10. 응답은 `unknown`에서 runtime schema로 parse하고 query cancellation `AbortSignal`을 실제 client까지 전달한다
 11. 변경 후 `developer`가 success/empty/malformed/timeout/auth/schema drift fixture를 보강하고 사용자 승인 후 `web-harness-script run-quality-gates --all --allow-host-execution`을 실행한다

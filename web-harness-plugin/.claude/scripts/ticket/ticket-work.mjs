@@ -7,12 +7,12 @@
 //     테스트 항목은 기획 TC(`TC-…`)와 섞이지 않게 `TT-<티켓키>-<n>`로 따로 센다. 기획 없는 프로젝트의 specTier는 그대로다
 //   - **계획 WORK와 같은 모양** — 확정된 판정서를 WORK 정의로 옮겨 픽업·링크·머지 판정을 그대로 재사용한다
 //   - **티켓 원본은 그대로** — 확정한 판정은 개발자 로컬의 등록 기록이다(`registrationPath`, git 제외). 티켓에는 배정·상태 전이와
-//     사람이 읽는 코멘트(착수 불가 요청·임의 디자인 알림)만 남는다
+//     사람이 읽는 코멘트(착수 불가 요청·임의 디자인·가정 알림)만 남는다
 import {createHash} from 'node:crypto'
 import {canonicalDigest, safeRelativeScope} from './work-analysis.mjs'
 import {pathsOverlap, ROLE} from './work-plan.mjs'
 import {buildWorkDoc, formatWorkDoc, normalizeDocItem, ORIGINAL_TITLES} from './work-ticket-doc.mjs'
-import {stripWorkMarker} from './work-refs.mjs'
+import {isTicketKeyRef, normalizeTicketKeyRef as normalizeKeyRef, stripWorkMarker} from './work-refs.mjs'
 import {normalizeLayerPath} from '../agent-registry.mjs'
 
 const list = value => (Array.isArray(value) ? value : [])
@@ -24,7 +24,7 @@ export const LANES = ['fix', 'change']
 export const SELF_CHECK_IDS = ['new-route', 'new-data-contract', 'new-auth-path', 'new-external-dependency', 'public-contract-change']
 const ANSWERS = ['yes', 'no', 'unknown']
 const ASSESSMENT_KEYS = ['schemaVersion', 'ticket', 'verdict', 'lane', 'objective', 'roles', 'selfCheck', 'planningNeeds', 'designNeeds',
-  'reasons', 'writePaths', 'nonGoals', 'acceptance', 'testItems', 'dependsOn', 'designByImplementer']
+  'reasons', 'writePaths', 'nonGoals', 'acceptance', 'testItems', 'dependsOn', 'designByImplementer', 'assumptions']
 // 디자인 없이 기능 먼저(임의 디자인)의 근거 — 티켓 본문의 지시(원문 인용) 또는 개발자의 지시(미리보기 확인이 승인한다).
 const DESIGN_SOURCES = ['ticket', 'developer']
 
@@ -49,6 +49,22 @@ export const ticketPlanId = (provider, ticketKey) => derivedUuid(`web-harness:ti
 /** 테스트 항목 ID 접두(순수) — 기획 TC와 다른 공간이다. */
 export const testItemPrefix = ticketKey => `TT-${String(ticketKey).replace(/[^A-Za-z0-9]+/g, '-')}-`
 export const TEST_ITEM_ID = /\bTT-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-\d+\b/g
+
+// 선행은 WORK ID 또는 **티켓 키**로 적는다 — 사람 티켓은 키에서 작업 ID가 결정되므로 등록 전이어도 선언할 수 있다.
+export {isTicketKeyRef}
+
+/** 선행 → `{workId, ticketKey}`(순수). 키면 이미 아는 작업(발행된 계획 WORK 등)의 ID를, 없으면 키에서 결정한 ID를 쓴다. */
+export function resolveTicketDependencies({dependsOn, provider, keyedWorks = new Map()}) {
+  return list(dependsOn).map(dep => {
+    if (!isTicketKeyRef(dep)) return {workId: dep, ticketKey: null}
+    const key = normalizeKeyRef(dep)
+    return {workId: keyedWorks.get(key) ?? ticketWorkId(provider, key), ticketKey: key}
+  })
+}
+
+/** 확인 지문(순수) — 겹침이 있으면 판정서 지문에 겹친 작업 목록을 묶는다. 겹침이 바뀌면 다시 확인해야 한다. */
+export const overlapConfirmToken = (digest, overlaps = []) => (list(overlaps).length === 0 ? digest
+  : canonicalDigest({assessment: digest, overlaps: list(overlaps).map(work => work.workId).sort()}))
 
 /** 스팩의 소유 경계(순수) — `layerMap` 값들. 없으면 null(경계를 모르면 착수시키지 않는다). */
 export function specWritableRoots(spec) {
@@ -75,7 +91,7 @@ export function originalBodyOf(body, {completed = /<!-- web-harness:work\b/.test
  * @param {{assessment: object, ticketKey: string, provider: string, originalBody: string, spec: object|null,
  *          activeWorks: {workId: string, writePaths: string[]}[], knownWorkIds?: Set<string>}} args
  *   activeWorks: 발행됐고 머지로 끝나지 않은 다른 작업(계획·티켓) — 수정 범위가 겹치면 착수시키지 않는다
- * @returns {{ok: boolean, errors: string[], verdict: string|null, digest: string|null, bounce?: object}}
+ * @returns {{ok: boolean, errors: string[], verdict: string|null, digest: string|null, overlaps?: object[]}}
  */
 export function validateTicketAssessment({assessment, ticketKey, provider, originalBody, spec, activeWorks = [], knownWorkIds = new Set()}) {
   const errors = []
@@ -123,7 +139,20 @@ export function validateTicketAssessment({assessment, ticketKey, provider, origi
     }
   }
 
-  let bounce = null
+  // 기획 미정을 가정으로 두고 진행한다(임의 디자인과 대칭) — 세부 미정만이다. 새 사용자 흐름·정책은 가정으로 정하지 않는다(needs-planning).
+  if (a.assumptions !== undefined) {
+    if (!Array.isArray(a.assumptions)) errors.push('assumptions는 배열이다')
+    else {
+      if (a.verdict !== 'startable' && a.assumptions.length > 0) errors.push('assumptions는 착수 가능 판정에만 쓴다 — 착수 불가면 planningNeeds로 요청한다')
+      a.assumptions.forEach((item, index) => {
+        for (const key of ['what', 'assumed', 'why']) {
+          if (typeof item?.[key] !== 'string' || !item[key].trim()) errors.push(`assumptions[${index}].${key}가 없다 — 무엇이 미정이고, 어떻게 가정하고, 왜 그래도 되는지`)
+        }
+      })
+    }
+  }
+
+  let overlapping = []
   if (a.verdict === 'startable') {
     if (!LANES.includes(a.lane)) errors.push(`착수 가능이면 lane은 ${LANES.join('|')}`)
     const unknown = SELF_CHECK_IDS.filter(id => answer(id) === 'unknown')
@@ -177,16 +206,18 @@ export function validateTicketAssessment({assessment, ticketKey, provider, origi
     })
     if (a.lane === 'change' && items.length === 0) errors.push('change면 testItems가 하나 이상이어야 한다 — 새 동작을 무엇으로 확인할지')
     if (!Array.isArray(a.dependsOn)) errors.push('dependsOn이 없다 — 없으면 []로 명시한다(미선언은 「의존 없음」이 아니다)')
-    for (const dep of list(a.dependsOn)) if (!knownWorkIds.has(dep)) errors.push(`dependsOn ${dep}가 원장·계획에 없는 작업이다`)
-    // 진행 중인 다른 작업과 수정 범위가 겹치면 착수시키지 않는다 — 계획 WORK의 경계를 사람 티켓이 가로지르지 않게.
-    const overlaps = activeWorks.filter(work => pathsOverlap(list(work.writePaths), writePaths))
-    if (errors.length === 0 && overlaps.length > 0) {
-      bounce = {reason: 'ticket-overlaps-active-work', overlaps: overlaps.map(work => ({workId: work.workId, writePaths: work.writePaths,
-        ...(work.ticketKey ? {ticketKey: work.ticketKey} : {}), ...(work.source ? {source: work.source} : {})}))}
+    for (const dep of list(a.dependsOn)) {
+      if (isTicketKeyRef(dep)) { if (normalizeKeyRef(dep) === String(ticketKey)) errors.push('dependsOn에 이 티켓 자신이 있다') }
+      else if (dep === ticketWorkId(provider, ticketKey)) errors.push('dependsOn에 이 티켓 자신의 작업이 있다')
+      else if (!knownWorkIds.has(dep)) errors.push(`dependsOn ${dep}가 원장·계획에 없는 작업이다 — 사람 티켓이면 티켓 키로 적는다`)
     }
+    // 진행 중인 다른 작업과 수정 범위가 겹치면 **보여 주고 확인받는다** — 막지 않는다. 남의 클론 작업은 어차피 보이지 않고(머지 시점에
+    // 처리하기로 했다) 내 클론 작업만 막으면 일관되지 않다. 확인 지문이 겹침 목록을 묶어 무엇을 알고 확인했는지 남긴다.
+    overlapping = activeWorks.filter(work => pathsOverlap(list(work.writePaths), writePaths)).map(work => ({workId: work.workId,
+      writePaths: list(work.writePaths), ...(work.ticketKey ? {ticketKey: work.ticketKey} : {})}))
   }
   const ok = errors.length === 0
-  return {ok, errors, verdict: ok ? a.verdict : null, digest: ok ? assessmentDigest(a) : null, ...(bounce ? {bounce} : {})}
+  return {ok, errors, verdict: ok ? a.verdict : null, digest: ok ? assessmentDigest(a) : null, ...(ok && overlapping.length > 0 ? {overlaps: overlapping} : {})}
 }
 
 /**
@@ -204,18 +235,20 @@ export function ticketSpecApproval(assessment) {  // 「예」·「모름」·�
   return SELF_CHECK_IDS.every(id => answers.get(id) === 'no') ? 'not-needed' : 'required'
 }
 
-export function ticketWorkDefinition({assessment, ticketKey, provider, title}) {
+export function ticketWorkDefinition({assessment, ticketKey, provider, title, dependencies = null}) {
   const workId = ticketWorkId(provider, ticketKey)
   return {
     workId, title: title || String(ticketKey), kind: 'implementation', origin: 'ticket', lane: assessment.lane,
     specApproval: ticketSpecApproval(assessment),
     roles: list(assessment.roles), objective: assessment.objective, nonGoals: list(assessment.nonGoals),
-    dependsOn: list(assessment.dependsOn), readPaths: [], writePaths: list(assessment.writePaths), contractRefs: [],
+    dependsOn: dependencies ? dependencies.map(dep => dep.workId) : list(assessment.dependsOn), readPaths: [], writePaths: list(assessment.writePaths), contractRefs: [],
     checks: list(assessment.acceptance).map((item, index) => ({checkId: `ACC-${index + 1}`, kind: 'acceptance', expectedOutcome: item.text,
       targetRefs: list(assessment.writePaths), source: item.source})),
     testCases: list(assessment.testItems).map(item => ({id: item.id, text: item.text, source: item.source})),
     designDebt: list(assessment.designNeeds).filter(item => item?.blocking === false),
     ...(assessment.designByImplementer ? {designByImplementer: {source: assessment.designByImplementer.source}} : {}),
+    ...(list(assessment.assumptions).length > 0
+      ? {assumptions: list(assessment.assumptions).map(({what, assumed, why}) => ({what, assumed, why}))} : {}),
     lifecycle: 'active',
   }
 }
@@ -227,6 +260,8 @@ export const ticketDefinitionDigest = definition => canonicalDigest({
   lane: definition?.lane ?? null, specApproval: definition?.specApproval ?? null, roles: list(definition?.roles), objective: definition?.objective ?? '',
   nonGoals: list(definition?.nonGoals), dependsOn: list(definition?.dependsOn), writePaths: list(definition?.writePaths),
   checks: list(definition?.checks).map(check => check.expectedOutcome), testCases: list(definition?.testCases).map(item => `${item.id} ${item.text}`),
+  // 가정이 없던 정의의 지문은 그대로다 — 이미 집은 작업이 이 필드 추가만으로 STALE이 되지 않는다.
+  ...(list(definition?.assumptions).length > 0 ? {assumptions: list(definition.assumptions).map(item => `${item.what} → ${item.assumed}`)} : {}),
 })
 
 /** 티켓 작업의 가상 계획(순수) — 픽업·링크·편집 대조가 계획 WORK와 같은 코드를 탄다. */

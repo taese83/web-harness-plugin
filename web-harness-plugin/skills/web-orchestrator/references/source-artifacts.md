@@ -23,7 +23,7 @@ Use this reference when the user already has planning, design, API, or product d
 그러므로 설계 문서는 `00_source/`에 스냅샷·인벤토리·해시로만 남기고 `source-index.md`에
 **구현 설계 입력**으로 분류한다. 오케스트레이터가 그 경로를 `system-architect`에 우선 입력으로
 넘기고, 그 에이전트가 `confirmed` 티어로 블록을 쓴다
-(`provenance-contract.md` §1·§7, `web-harness-read agents/system-architect.md`).
+(`provenance-contract.md` §1·§7, `_workspace/.contracts/agents/system-architect.md`).
 
 ## 티켓이 입구인 경우 — 역방향 인테이크
 

@@ -1,0 +1,128 @@
+{
+  "$schema": "../../schemas/web-core/adapter.schema.json",
+  "schemaVersion": 1,
+  "id": "vite-serverless-hybrid",
+  "version": "1.1.0",
+  "supportLevel": "certified",
+  "trust": {
+    "tier": "builtin",
+    "source": "web-harness-control-plane",
+    "commandPolicy": "argv-only",
+    "allowedExecutables": [
+      "pnpm"
+    ],
+    "environmentAllowlist": [
+      "CI",
+      "NODE_ENV"
+    ]
+  },
+  "project": {
+    "framework": "react",
+    "variant": "vite-serverless-hybrid",
+    "packageManager": "pnpm",
+    "router": "react-router",
+    "rendering": [
+      "csr"
+    ]
+  },
+  "runtime": {
+    "primary": "browser",
+    "supported": [
+      "browser",
+      "node",
+      "node-build"
+    ]
+  },
+  "detection": {
+    "allPackages": [
+      "react",
+      "vite"
+    ],
+    "anyPackages": [],
+    "allPaths": [
+      "api"
+    ],
+    "anyPaths": [
+      "vite.config.js",
+      "vite.config.mjs",
+      "vite.config.ts",
+      "src/main.jsx",
+      "src/main.tsx"
+    ],
+    "forbiddenPackages": [
+      "next"
+    ],
+    "forbiddenPaths": []
+  },
+  "profileDefaults": {
+    "productKind": "hybrid-web",
+    "backendShape": "serverless-functions",
+    "deploymentProvider": "vercel",
+    "deploymentTarget": "vercel-hybrid",
+    "riskLevel": "authenticated-business",
+    "capabilities": [
+      "client-routing",
+      "csr",
+      "serverless-functions",
+      "static-build"
+    ]
+  },
+  "provides": [
+    "auth",
+    "client-routing",
+    "cookie-auth",
+    "csr",
+    "external-ingestion",
+    "scheduled-static-ingestion",
+    "serverless-functions",
+    "static-build"
+  ],
+  "conflicts": [
+    "rsc",
+    "server-actions",
+    "ssr"
+  ],
+  "deploymentProviders": [
+    {
+      "id": "vercel",
+      "deploymentTargets": [
+        "vercel-hybrid"
+      ]
+    }
+  ],
+  "deploymentTargets": [
+    {
+      "id": "vercel-hybrid",
+      "runtime": "node",
+      "requires": [
+        "serverless-functions",
+        "static-build"
+      ],
+      "conflicts": [
+        "rsc",
+        "server-actions",
+        "ssr"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "vite-dist",
+      "path": "dist",
+      "kind": "static-directory",
+      "deploymentTargets": [
+        "vercel-hybrid"
+      ]
+    }
+  ],
+  "initialCapabilities": [
+    "requirements.locked"
+  ],
+  "targetCapabilities": [
+    "release.candidate"
+  ],
+  "shapes": [
+    "web-app",
+    "serverless-functions"
+  ]
+}

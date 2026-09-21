@@ -47,11 +47,11 @@ maxTurns: 25
    - freshness/count/coverage/diff threshold, invalid promotion rejection, serving fallback, atomic promotion/last-known-good
    - selected capability `external-ingestion`; static snapshot+scheduled이면 `scheduled-static-ingestion`
 11. 하나의 workspace graph와 lockfile을 기본으로 하며 독립 package가 필요하면 이유, build 순서, root quality script가 모든 package를 포함하는 방법을 기록한다.
-12. timeseries 서비스면 `web-harness-read skills/timeseries-dashboard/references/chart-performance.md`를 읽고 SVG/Canvas/WebGL, SSE/WebSocket/polling, Worker, aggregation/downsampling 결정을 compatibility matrix와 별도로 기록한다.
+12. timeseries 서비스면 `_workspace/.contracts/skills/timeseries-dashboard/references/chart-performance.md`를 읽고 SVG/Canvas/WebGL, SSE/WebSocket/polling, Worker, aggregation/downsampling 결정을 compatibility matrix와 별도로 기록한다.
 13. chart library의 마케팅 최대 건수를 근거로 사용하지 않고 normal/max/burst fixture에서 검증할 선택만 제안한다.
 14. adapter가 지원하는 capability 전체를 enabled로 복사하지 않는다. auth/cookie/BFF/server mutation은 요구사항 ID가 있을 때만 `selected capabilities`에 넣고, 공개 Next 기본 경로의 risk를 인증 서비스로 과장하지 않는다.
 15. app dependency는 public registry exact version으로 기록한다. 직접 `pnpm add/install`을 제안하지 않고 environment-scaffolder와 `run-package-operation.mjs`의 lockfile 검토 → frozen install 계약으로 넘긴다.
-16. `ANALYTICS_BUILDER_MODE`이면 chart renderer, grid editor, table virtualization을 분리 평가한다. semantic result schema, accessibility, bundle, max-cardinality fixture를 compatibility matrix에 연결한다. chart 렌더 엔진은 `web-harness-read skills/analytics-chart-builder/references/chart-engine-adapter.md`의 **엔진-무관 경계**로 선정하고, 상용 라이선스 엔진(예: Highcharts)은 **inform-and-choose**로 처리한다 — 라이선스 필요 여부를 사용자에게 고지하고 선택(상용 채택 vs 무료 대안 recharts/echarts)을 받아 `decision-log`에 근거를 기록한다. 무료 어댑터가 기본값이며 상용은 선택의 결과로만 채택한다.
+16. `ANALYTICS_BUILDER_MODE`이면 chart renderer, grid editor, table virtualization을 분리 평가한다. semantic result schema, accessibility, bundle, max-cardinality fixture를 compatibility matrix에 연결한다. chart 렌더 엔진은 `_workspace/.contracts/skills/analytics-chart-builder/references/chart-engine-adapter.md`의 **엔진-무관 경계**로 선정하고, 상용 라이선스 엔진(예: Highcharts)은 **inform-and-choose**로 처리한다 — 라이선스 필요 여부를 사용자에게 고지하고 선택(상용 채택 vs 무료 대안 recharts/echarts)을 받아 `decision-log`에 근거를 기록한다. 무료 어댑터가 기본값이며 상용은 선택의 결과로만 채택한다.
 17. planning-context의 데이터 전략과 Mock→real 조건을 Architecture Decision에 연결한다. shape 검증만 필요한 단계에 production 연결을 강제하지 않고, real/dev 데이터는 최소 권한 read-only와 PII 경계를 명시한다.
 18. unresolved 제품 결정이 stack을 바꾸면 선호로 확정하지 않고 `NEEDS_DECISION`; source 권한이나 안전 경계가 없으면 `BLOCKER`로 둔다.
 
@@ -143,4 +143,4 @@ ESLint 9.39 Flat Config — jsx-a11y 등 필수 plugin이 ESLint 10 peer를 공�
 
 ## 입력 읽기
 
-`_workspace/01_plan/requirements/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(기능 REQ와 비기능 NFR)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`requirements.md`)을 읽는다. 규칙은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
+`_workspace/01_plan/requirements/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(기능 REQ와 비기능 NFR)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`requirements.md`)을 읽는다. 규칙은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->

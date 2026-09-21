@@ -15,7 +15,7 @@ maxTurns: 30
 - `_workspace/01_plan/requirements.md`
 - `_workspace/01_plan/feature-plan.md`
 - `_workspace/01_plan/tech-stack.md`
-- `web-harness-read skills/web-orchestrator/references/external-data-ingestion.md`
+- `_workspace/.contracts/skills/web-orchestrator/references/external-data-ingestion.md`
 
 ## 작업 원칙
 
@@ -28,7 +28,7 @@ maxTurns: 30
 7. 정상·empty·malformed·drift·duplicate·429/5xx·timezone·count-drop fixture와 evidence owner를 지정한다.
 8. build 또는 runtime이 실제로 소비하는 계약은 설명문과 별도로 기계 판독 JSON에 기록한다.
 9. 현재 구현이 미래 아키텍처와 다르면 현재 mode, migration trigger, 제거 조건을 명시한다.
-10. machine contract는 `web-harness-read schemas/runtime-data-contract.schema.json`의 strict v1 필드만 사용한다. legacy field나 임의 extension을 추가하지 않는다.
+10. machine contract는 `_workspace/.contracts/schemas/runtime-data-contract.schema.json`의 strict v1 필드만 사용한다. legacy field나 임의 extension을 추가하지 않는다.
 11. 각 required JSON artifact에 project JSON Schema와 records/count/freshness pointer, required-field/source coverage, duplicate key/ratio, last-known-good baseline과 count-drop threshold를 지정한다.
 12. `promotionPolicy`는 `reject-invalid`로 고정하고 serving 장애 표현은 `servingFallback`으로 분리한다. scheduled refresh는 `refreshCapabilities`에 `scheduled`와 `manual-recovery`를 함께 둔다.
 
@@ -68,7 +68,7 @@ EXTERNAL_DATA_INGESTION_MODE: true
 
 ## 출력 2: Runtime Data Contract
 
-`web-harness-read skills/web-orchestrator/references/external-data-ingestion.md`의 canonical 예와 `web-harness-read schemas/runtime-data-contract.schema.json`을 모두 만족하는 유효 JSON을 작성한다. contract를 쓰기 전에 schema field를 추측하지 않고 실제 schema를 읽는다.
+`_workspace/.contracts/skills/web-orchestrator/references/external-data-ingestion.md`의 canonical 예와 `_workspace/.contracts/schemas/runtime-data-contract.schema.json`을 모두 만족하는 유효 JSON을 작성한다. contract를 쓰기 전에 schema field를 추측하지 않고 실제 schema를 읽는다.
 
 출력 파일: `_workspace/02_design/runtime-data-contract.json`
 

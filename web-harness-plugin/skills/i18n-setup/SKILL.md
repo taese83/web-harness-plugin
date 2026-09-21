@@ -64,7 +64,7 @@ src/shared/lang/
 - 날짜·숫자·통화 포맷은 수동 문자열 조합 금지 — `Intl.DateTimeFormat`/`NumberFormat` 또는 라이브러리 formatter
 - RTL locale이 목록에 있으면 `dir` 속성과 logical CSS property(`margin-inline-start` 등) 계약을 spec에 추가
 - 언어 전환 시 라우터 상태·폼 입력이 유실되지 않아야 한다
-- CJK 입력(IME)과 i18n이 결합된 검색/폼은 `web-harness-read skills/component-gen/references/input-focus-ime.md`를 따른다
+- CJK 입력(IME)과 i18n이 결합된 검색/폼은 `_workspace/.contracts/skills/component-gen/references/input-focus-ime.md`를 따른다
 
 ### 4. 검증
 

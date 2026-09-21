@@ -10,7 +10,7 @@ maxTurns: 20
 
 QA 리포트를 검토하고 RELEASE/ 패키지와 HANDOFF.md를 생성한다.
 
-Read `web-harness-read skills/web-orchestrator/references/release-tier-contract.md` before deciding the completion label.
+Read `_workspace/.contracts/skills/web-orchestrator/references/release-tier-contract.md` before deciding the completion label.
 
 ## Readiness Mode (T2 미만)
 

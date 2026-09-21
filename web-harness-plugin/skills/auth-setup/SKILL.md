@@ -14,7 +14,7 @@ metadata:
 
 완성된 프로젝트에 서버 세션 cookie 또는 OIDC Authorization Code + PKCE 기반 인증을 추가한다. 브라우저 라우트 가드는 UX 기능일 뿐 서버 인가를 대체하지 않는다.
 
-Read `references/auth-patterns.md` and `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md` before writing any auth code. 기존 API/router/session contract와 사용자 변경을 먼저 확인하고 auth에 필요한 owner 경로만 수정한다.
+Read `references/auth-patterns.md` and `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md` before writing any auth code. 기존 API/router/session contract와 사용자 변경을 먼저 확인하고 auth에 필요한 owner 경로만 수정한다.
 
 서버가 OAuth code exchange를 직접 수행하는 방식이면 (Google/GitHub/Kakao BFF 흐름) `references/oauth-server-flow.md`를 함께 읽는다. Session cookie, JWT signing, `_lib/session.ts`, `_lib/oauth.ts`, callback state 검증까지의 구체 계약이 있다.
 

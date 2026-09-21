@@ -33,19 +33,19 @@ maxTurns: 25
 > tech-advisor가 framework vendor를 먼저 고정하지 않고 rendering profile을 결정합니다.
 ```
 
-6. **시계열/실시간 감지**: <!-- marker:detect-timeseries --> "Grafana", "시계열", "메트릭", "실시간", "빅데이터", "telemetry", "모니터링"이 있거나 "대시보드"와 chart/metric/realtime 요구가 함께 있으면 `web-harness-read skills/timeseries-dashboard/references/intake-and-slos.md`를 읽고 다음을 requirements에 추가한다:
+6. **시계열/실시간 감지**: <!-- marker:detect-timeseries --> "Grafana", "시계열", "메트릭", "실시간", "빅데이터", "telemetry", "모니터링"이 있거나 "대시보드"와 chart/metric/realtime 요구가 함께 있으면 `_workspace/.contracts/skills/timeseries-dashboard/references/intake-and-slos.md`를 읽고 다음을 requirements에 추가한다:
    - normal/max series, points per second, visible points
    - historical range와 aggregation resolution
    - live latency와 render cadence
    - transport, reconnect/resume, gap/duplicate/out-of-order 정책
    - timezone, target browser, 장시간 memory/CPU SLO
    - 값이 없으면 `ASSUMPTION`, 핵심 3개 값이 모두 없으면 `BLOCKER`
-7. **로컬 도메인 상태 감지**: `web-harness-read skills/web-orchestrator/references/local-domain-state.md`에 따라 browser-owned CRUD, offline data, localStorage/IndexedDB, 정렬·이동·다중 선택·undo·참조 관계가 있으면 `LOCAL_DOMAIN_STATE_MODE: true`를 기록한다. 단순 theme/language 설정만 있으면 활성화하지 않는다.
-8. **외부 데이터 수집 감지**: `web-harness-read skills/web-orchestrator/references/external-data-ingestion.md`에 따라 crawling/scraping, RSS/CSV/import, scheduled third-party sync, build-generated runtime artifact가 있으면 `EXTERNAL_DATA_INGESTION_MODE: true`를 기록한다. source 사용 권한, payload 형식, authoritative source, `static-snapshot|live-api|hybrid`, 갱신 주기와 manual recovery, freshness, 최소 count/coverage, invalid candidate rejection, serving fallback, build/deployment provider와 cwd를 요구사항에 추가한다. source 권한 또는 authoritative source가 불명확하면 `BLOCKER`다.
-9. 모든 Must/Should 요구사항에 안정적인 ID(`REQ-NNN` — 생성 후 불변, 삭제 대신 상태 표기)를 부여하고, Must에는 관찰 가능한 Given/When/Then acceptance criteria를 작성한다. destructive action, hidden/filtered data, persistence recovery, keyboard, max fixture가 관련되면 해당 조건을 acceptance criteria에 포함한다. ID 규율은 `web-harness-read skills/web-plan/references/plan-history-contract.md`를 따른다.
+7. **로컬 도메인 상태 감지**: `_workspace/.contracts/skills/web-orchestrator/references/local-domain-state.md`에 따라 browser-owned CRUD, offline data, localStorage/IndexedDB, 정렬·이동·다중 선택·undo·참조 관계가 있으면 `LOCAL_DOMAIN_STATE_MODE: true`를 기록한다. 단순 theme/language 설정만 있으면 활성화하지 않는다.
+8. **외부 데이터 수집 감지**: `_workspace/.contracts/skills/web-orchestrator/references/external-data-ingestion.md`에 따라 crawling/scraping, RSS/CSV/import, scheduled third-party sync, build-generated runtime artifact가 있으면 `EXTERNAL_DATA_INGESTION_MODE: true`를 기록한다. source 사용 권한, payload 형식, authoritative source, `static-snapshot|live-api|hybrid`, 갱신 주기와 manual recovery, freshness, 최소 count/coverage, invalid candidate rejection, serving fallback, build/deployment provider와 cwd를 요구사항에 추가한다. source 권한 또는 authoritative source가 불명확하면 `BLOCKER`다.
+9. 모든 Must/Should 요구사항에 안정적인 ID(`REQ-NNN` — 생성 후 불변, 삭제 대신 상태 표기)를 부여하고, Must에는 관찰 가능한 Given/When/Then acceptance criteria를 작성한다. destructive action, hidden/filtered data, persistence recovery, keyboard, max fixture가 관련되면 해당 조건을 acceptance criteria에 포함한다. ID 규율은 `_workspace/.contracts/skills/web-plan/references/plan-history-contract.md`를 따른다.
 9-1. **경량 재호출(write-back)**: 기존 프로젝트의 기능 추가·변경으로 재호출되면 문서 전체를 재작성하지 않고 대상 REQ 절만 현재화한다. 변경 내역은 `planning-facilitator`의 decision-log 엔트리와 함께 한 세트로 처리된다.
-10. `web-harness-read skills/analytics-chart-builder/references/detection-contract.md`에 따라 `ANALYTICS_BUILDER_MODE`를 판정한다. 활성화되면 metric/dimension catalog, aggregation/filter/group/order, chart compatibility, dashboard revision, query/cardinality budget을 요구사항에 추가한다.
-12. `web-harness-read skills/web-orchestrator/references/scenario-contract.md`에서 요청에 해당하는 카테고리만 선택해 정상·실패·경계 시나리오를 Must acceptance criteria에 연결한다.
+10. `_workspace/.contracts/skills/analytics-chart-builder/references/detection-contract.md`에 따라 `ANALYTICS_BUILDER_MODE`를 판정한다. 활성화되면 metric/dimension catalog, aggregation/filter/group/order, chart compatibility, dashboard revision, query/cardinality budget을 요구사항에 추가한다.
+12. `_workspace/.contracts/skills/web-orchestrator/references/scenario-contract.md`에서 요청에 해당하는 카테고리만 선택해 정상·실패·경계 시나리오를 Must acceptance criteria에 연결한다.
 13. 먼저 `_workspace/01_plan/planning-context.md`를 읽고 Product Frame, UX Check, critical states, data strategy, effort driver를 requirement ID에 trace한다. 제품 맥락이 없거나 상충하면 임의로 채우지 않고 `NEEDS_DECISION | BLOCKER`로 반환한다.
 
 ## 출력 구조

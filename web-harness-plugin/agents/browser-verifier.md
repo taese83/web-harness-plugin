@@ -42,7 +42,7 @@ maxTurns: 25
 3. 자동 접근성 검사는 수동 키보드/스크린리더 검토를 대체하지 않는다고 명시한다.
 4. 실패마다 재현 명령, route, viewport, 증거, owner agent를 기록한다.
 5. Playwright 인프라가 없으면 PASS가 아니라 `BLOCKED`로 반환한다.
-5-1. **인증 뒤 화면**은 `web-harness-read skills/web-orchestrator/references/auth-verification-contract.md`를 따른다 —
+5-1. **인증 뒤 화면**은 `_workspace/.contracts/skills/web-orchestrator/references/auth-verification-contract.md`를 따른다 —
    auth fixture(storageState)가 있으면 주입 후 검증 시작 시 인증 상태를 먼저 assert하고, 없으면
    `BLOCKED(AUTH_REQUIRED)`. 로그인 페이지를 앱 화면으로 오인한 PASS는 무효(`AUTH_EXPIRED`).
 6. `timeseries-architecture.md`가 있으면 해당 문서의 측정 환경과 PASS 기준을 사용하고 임의 threshold를 만들지 않는다.
@@ -83,4 +83,4 @@ PASS | FAIL | BLOCKED
 
 ## 입력 읽기
 
-`_workspace/02_design/state-contract/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`state-contract.md`)을 읽는다. 규칙은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
+`_workspace/02_design/state-contract/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`state-contract.md`)을 읽는다. 규칙은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->

@@ -50,7 +50,7 @@ maxTurns: 20
    (2026-08-30 실측: 산문에만 있어 11건 전부 착수 가능으로 보였고 실제로는 4건이었다).
 6. timeseries 요구가 있으면 `time-range`, `chart-panel`, `live-mode`, `stream-status` 책임을 분리하고 historical query와 realtime subscription을 같은 hook에 숨기지 않는다
 7. high-frequency stream state는 일반 mutation이나 영속 Zustand store로 모델링하지 않는다
-8. `LOCAL_DOMAIN_STATE_MODE`이면 `web-harness-read skills/web-orchestrator/references/local-domain-state.md`를 읽고 authoritative state, derived view, command, selector, persistence adapter의 FSD owner를 분리한다.
+8. `LOCAL_DOMAIN_STATE_MODE`이면 `_workspace/.contracts/skills/web-orchestrator/references/local-domain-state.md`를 읽고 authoritative state, derived view, command, selector, persistence adapter의 FSD owner를 분리한다.
 9. ID, parent/reference ID, order, version 같은 구조 필드는 일반 `Partial<Entity>` update 대상에서 제외하고 전용 command를 계획한다.
 10. filter/search/sort/virtualization과 move/reorder/delete가 함께 있으면 view ID와 canonical ID/index 변환 책임을 명시한다.
 11. 각 Must 요구사항 ID를 구현 slice와 unit/integration/browser evidence에 연결한다.
@@ -59,11 +59,11 @@ maxTurns: 20
 14. `ANALYTICS_BUILDER_MODE`이면 metric catalog, semantic query, chart compatibility, chart builder, dashboard editor 책임을 분리한다. Funnel/Retention/Flow는 전용 result schema와 owner를 계획한다.
 15. UX Check의 critical state와 annotation intent를 owner/evidence에 연결한다. 화면 좌표나 문구만으로 feature scope를 만들지 않는다.
 16. S/M/L/XL effort driver를 dependency와 검증 범위로 교차 확인하고, `invest | reduce | split` 권고가 있으면 가장 작은 가시적 수직 slice를 먼저 제시한다.
-17. `web-harness-read skills/web-plan/references/design-readiness-contract.md`의 Page Groups와 Feature List 표준 표를 필수로 작성한다. `PAGE-NNN`은 페이지 대분류의 안정 ID이고 각 FEAT는 정확히 하나의 primary Page Group을 참조한다. 여러 화면 진입점은 `Screen`에 유지하며 단일 primary가 없는 전역 책임만 `PAGE-000`을 쓴다. `FEAT-NNN` ID는 생성 후 불변이고 삭제 대신 `Scope: cut` 표기를 쓴다. 모든 Must는 ≥1 화면에, 모든 화면은 ≥1 기능에 매핑한다 — unknown/orphan PAGE와 고아 화면/기능은 `NEEDS_DECISION`.
+17. `_workspace/.contracts/skills/web-plan/references/design-readiness-contract.md`의 Page Groups와 Feature List 표준 표를 필수로 작성한다. `PAGE-NNN`은 페이지 대분류의 안정 ID이고 각 FEAT는 정확히 하나의 primary Page Group을 참조한다. 여러 화면 진입점은 `Screen`에 유지하며 단일 primary가 없는 전역 책임만 `PAGE-000`을 쓴다. `FEAT-NNN` ID는 생성 후 불변이고 삭제 대신 `Scope: cut` 표기를 쓴다. 모든 Must는 ≥1 화면에, 모든 화면은 ≥1 기능에 매핑한다 — unknown/orphan PAGE와 고아 화면/기능은 `NEEDS_DECISION`.
 16-1. `design-readiness-contract.md` §3-1에 따라 **모든 Must FEAT에 동작 명세와 test case(`TC-NNN-N`)를 작성한다**. 동작 명세는 "무엇을"이 아니라 "어떻게 동작하는가"(입력 반응·상태 전이·페이지 이동·DnD·CRUD의 조건과 결과)이고, test case는 requirements.md의 Must acceptance criteria(Given/When/Then)를 FEAT 단위로 구체화한 것이다 — 새로 발명하지 않고 REQ AC를 정본 근거로 재사용한다. 정상·실패·경계와 LOCAL_DOMAIN_STATE 불변식을 포함한다. 이 test case는 프리뷰 동작 커버리지·Phase 4 test·사용자 승인 체크리스트가 공유하는 단일 정본이다.
 16-2. 복합 FEAT에 독립적으로 설명·검증·변경 가능한 행동이 둘 이상이면 `design-readiness-contract.md` §3-2의 `FEAT-NNN-NN` 하위 기능 표를 추가한다. 버튼 수를 그대로 분해하지 않고 별도 TC subset·변경 경계·preview anchor가 필요한 행동만 만든다. parent는 aggregate를 유지하고 TC ID는 재번호화하지 않는다.
 16-3. Preview interactive surface audit에서 매핑 누락이 환류되면 `design-readiness-contract.md` §3-3으로 분류한다. 동일 행동의 다른 진입점은 기존 ID에 anchor만 추가하고, 동적 entity label마다 FEAT를 만들지 않는다. 기존 parent의 독립 행동만 Sub Feature로, 새로운 사용자 가치·scope만 top-level FEAT/REQ/TC로 생성하며 `requirements.md`·`feature-plan.md`·`decision-log.md` write-back이 끝나기 전 preview 재생성을 허용하지 않는다.
-18. **경량 재호출(write-back)**: 기능 추가·변경으로 재호출되면 Feature List의 대상 행과 관련 절만 현재화한다 (`web-harness-read skills/web-plan/references/plan-history-contract.md`).
+18. **경량 재호출(write-back)**: 기능 추가·변경으로 재호출되면 Feature List의 대상 행과 관련 절만 현재화한다 (`_workspace/.contracts/skills/web-plan/references/plan-history-contract.md`).
 
 ## 출력 구조
 
@@ -140,4 +140,4 @@ interface Metric {
 
 ## 입력 읽기
 
-`_workspace/01_plan/requirements/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(기능 REQ)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`requirements.md`)을 읽는다. 규칙은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
+`_workspace/01_plan/requirements/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(기능 REQ)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`requirements.md`)을 읽는다. 규칙은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->

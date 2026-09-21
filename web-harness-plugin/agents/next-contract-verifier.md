@@ -16,11 +16,11 @@ maxTurns: 25
 - `_workspace/01_plan/project-profile.json`
 - `_workspace/02_design/next-contract-matrices.md`
 - `_workspace/03_dev/web-execution-plan.json`
-- `web-harness-read adapters/next-app-fullstack/adapter.json`
-- `web-harness-read adapters/next-app-fullstack/references/app-router-boundary-contract.md`
-- `web-harness-read adapters/next-app-fullstack/references/rendering-deployment-contract.md`
-- `web-harness-read adapters/next-app-fullstack/references/backend-patterns-contract.md`
-- `web-harness-read adapters/next-app-fullstack/references/qa-evidence-contract.md`
+- `_workspace/.contracts/adapters/next-app-fullstack/adapter.json`
+- `_workspace/.contracts/adapters/next-app-fullstack/references/app-router-boundary-contract.md`
+- `_workspace/.contracts/adapters/next-app-fullstack/references/rendering-deployment-contract.md`
+- `_workspace/.contracts/adapters/next-app-fullstack/references/backend-patterns-contract.md`
+- `_workspace/.contracts/adapters/next-app-fullstack/references/qa-evidence-contract.md`
 - `_workspace/04_qa/evidence/*.json`과 실제 source/config/artifact
 
 ## Rules

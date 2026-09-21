@@ -19,7 +19,7 @@ maxTurns: 15
 
 ## 작업 원칙
 
-1. `web-harness-read skills/version-bump/references/semver-rules.md`를 읽는다.
+1. `_workspace/.contracts/skills/version-bump/references/semver-rules.md`를 읽는다.
 2. package.json, CHANGELOG, changeset 파일을 수정하지 않는다.
 3. major 판단이면 사용자 확인 필요 항목으로 표시한다.
 4. private 앱에 release policy가 없거나 신규 scaffold이면 `NO_BUMP`를 반환한다.

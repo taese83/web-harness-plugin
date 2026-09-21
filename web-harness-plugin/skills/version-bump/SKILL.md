@@ -14,7 +14,7 @@ metadata:
 
 git 히스토리와 코드 변경을 분석해서 semantic version을 자동으로 결정하고 적용한다.
 
-Read `references/semver-rules.md` and `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md` before invoking `version-analyzer`. version, changelog, changeset 외 파일은 명시된 release contract가 요구할 때만 수정한다.
+Read `references/semver-rules.md` and `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md` before invoking `version-analyzer`. version, changelog, changeset 외 파일은 명시된 release contract가 요구할 때만 수정한다.
 
 ## Start
 

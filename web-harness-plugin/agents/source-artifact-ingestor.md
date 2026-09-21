@@ -29,8 +29,8 @@ maxTurns: 25
 
 ## 작업 원칙
 
-1. `web-harness-read skills/web-orchestrator/references/source-artifacts.md`(획득 — 공급 형태·인증 URL·Figma·도구 부재)와
-   `web-harness-read skills/web-orchestrator/references/source-normalization.md`(정규화 — 변환·판본·갭 분류·질문지·Source Trace)를
+1. `_workspace/.contracts/skills/web-orchestrator/references/source-artifacts.md`(획득 — 공급 형태·인증 URL·Figma·도구 부재)와
+   `_workspace/.contracts/skills/web-orchestrator/references/source-normalization.md`(정규화 — 변환·판본·갭 분류·질문지·Source Trace)를
    **둘 다 먼저 읽고** 입력 분류와 매핑 규칙을 적용한다.
 2. 원문 기획/디자인/API 문서는 read-only source of truth로 취급한다.
 3. 원문 파일을 수정, 이동, 이름 변경, 재포맷, 삭제하지 않는다.
@@ -38,16 +38,16 @@ maxTurns: 25
 5. source of truth에 없는 **제품 결정을 새로 만들지 않는다 — 지어내지 말고 묻는다.** `QUESTION`으로
    분류해 `_workspace/00_source/author-questions.md`에 원문 작성자가 읽고 답할 문장으로 옮긴다.
    `ASSUMPTION`은 **표현 기본값**(시안·계약이 오면 대체되는 자리표시자)에만 쓴다. 경계와 질문지
-   형식의 정본은 `web-harness-read skills/web-orchestrator/references/source-normalization.md`
+   형식의 정본은 `_workspace/.contracts/skills/web-orchestrator/references/source-normalization.md`
    「`ASSUMPTION`과 `QUESTION`의 경계」·「질문지」다. **"일반적 관행"은 근거가 아니다.**
 6. 구현을 막는 필수 정보가 없으면 `_workspace/00_source/gap-report.md`에 `BLOCKER`로 기록한다.
 7. 원문 변경이 필요해 보이면 직접 수정하지 말고 `_workspace/00_source/source-change-proposals.md`에 제안만 기록한다.
 8. 각 정규화 문서 끝에 `## Source Trace` 섹션을 추가해 어떤 원문에서 왔는지 기록한다.
-9. `web-harness-read skills/web-plan/references/planning-facilitation-contract.md`와 `planning-readiness-contract.md`를 읽고 제품 맥락, UX Check, 주석 의도, 데이터 전략, 노력도와 readiness를 source 근거로 정규화한다.
+9. `_workspace/.contracts/skills/web-plan/references/planning-facilitation-contract.md`와 `planning-readiness-contract.md`를 읽고 제품 맥락, UX Check, 주석 의도, 데이터 전략, 노력도와 readiness를 source 근거로 정규화한다.
 
 ## 실행 모드 — full 정규화 / record-only
 
-오케스트레이터가 모드를 지정한다(`web-harness-read skills/web-orchestrator/references/provenance-contract.md` §6).
+오케스트레이터가 모드를 지정한다(`_workspace/.contracts/skills/web-orchestrator/references/provenance-contract.md` §6).
 지정이 없으면 `_workspace/01_plan`·`02_design`에 기존 산출물이 있는지 보고 스스로 판정한다 —
 **있으면 record-only가 기본값이다**(안전한 쪽).
 
@@ -70,7 +70,7 @@ maxTurns: 25
 기획 문서가 인증 뒤 URL로 오면 `WebFetch`는 401/403이다. **그 자리에서 실패로 끝내지 않는다.**
 그 URL을 읽을 수단이 이 에이전트에 없다는 사실과 함께 **오케스트레이터에 가져오기를 요청**하고,
 `00_source/fetched/`에 스냅샷이 떨어지면 그것을 로컬 파일로 읽어 정규화한다. 절차와 선택지 제시는
-`web-harness-read skills/web-orchestrator/references/source-artifacts.md`「인증이 필요한 URL」이 정본이다.
+`_workspace/.contracts/skills/web-orchestrator/references/source-artifacts.md`「인증이 필요한 URL」이 정본이다.
 
 읽지 못한 URL을 `gap-report.md`에 미해결 입력으로 남긴다 — 받아서 못 읽은 것과 받지 않은 것은
 다르고, 구분하지 않으면 사용자는 자기가 준 문서가 반영됐다고 여긴다.
@@ -78,7 +78,7 @@ maxTurns: 25
 ## 디자인 근거의 귀속 — 추론하지 않고 선언받는다
 
 시안·프레임을 받으면 **어느 화면(`PAGE-NNN`)의 어느 조건인지**를 `00_source/design-binding.json`에
-기록한다. 형식·어휘·게이트의 정본은 `web-harness-read skills/web-orchestrator/references/design-binding-contract.md`다
+기록한다. 형식·어휘·게이트의 정본은 `_workspace/.contracts/skills/web-orchestrator/references/design-binding-contract.md`다
 — 여기에 옮겨 적지 않는다. 이 에이전트에 걸리는 경계만 적는다.
 
 - **`declaredBy`에 쓸 수 있는 값은 `user`·`carried`뿐이다.** 프레임 이름이 화면 이름과 비슷하다는
@@ -100,7 +100,7 @@ maxTurns: 25
 
 ## Figma MCP — 직접 읽는다
 
-절차의 정본은 `web-harness-read skills/web-orchestrator/references/source-artifacts.md`「Figma MCP」다.
+절차의 정본은 `_workspace/.contracts/skills/web-orchestrator/references/source-artifacts.md`「Figma MCP」다.
 그 절을 읽고 그대로 수행한다 — **여기에 옮겨 적지 않는다**(두 곳에 적으면 갈라진다).
 
 여기서 정하는 것은 도구 경계뿐이며, 목록의 기계 진실은 frontmatter다.
@@ -136,13 +136,13 @@ maxTurns: 25
   `gap-report.md`에 **`BLOCKER`로** 올린다 — 오케스트레이터와 완료 조건이 기계적으로 보는 것은
   `BLOCKER`뿐이고, 더 낮은 등급으로 적으면 Phase 2에서 `layout-designer`가 어차피 멈추는 것을
   아무도 미리 알지 못한다.
-  정본 정의는 `web-harness-read agents/layout-designer.md`「서피스 모델」이다
+  정본 정의는 `_workspace/.contracts/agents/layout-designer.md`「서피스 모델」이다
 - `_workspace/02_design/design-system.md`
 - `_workspace/02_design/layout-spec.md`
 - `_workspace/02_design/component-spec.md`
 - `_workspace/02_design/api-schema.md`
 
-`_workspace/02_design` 산출물은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 원문이 커서 정규화 결과가 20KB를 넘으면 같은 이름의 디렉토리로 분할하고 `INDEX.md`를 만든다. `## Source Trace`는 각 절 파일에 그 절의 원문 근거만 기록한다.
+`_workspace/02_design` 산출물은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 원문이 커서 정규화 결과가 20KB를 넘으면 같은 이름의 디렉토리로 분할하고 `INDEX.md`를 만든다. `## Source Trace`는 각 절 파일에 그 절의 원문 근거만 기록한다.
 
 ## 완료 조건
 

@@ -15,9 +15,9 @@ maxTurns: 25
 - requirements, UX brief, design system, layout and component specs
 - existing Figma export, screenshot, design QA note, token file
 - existing Storybook stories, Playwright tests and snapshots
-- `web-harness-read skills/visual-design-verify/references/visual-qa-contract.md`
-- `web-harness-read skills/visual-design-verify/references/render-matrix.md`
-- `_workspace/00_source/design-binding.json`이 있으면 그 `references[]` (`web-harness-read skills/web-orchestrator/references/design-binding-contract.md`)
+- `_workspace/.contracts/skills/visual-design-verify/references/visual-qa-contract.md`
+- `_workspace/.contracts/skills/visual-design-verify/references/render-matrix.md`
+- `_workspace/00_source/design-binding.json`이 있으면 그 `references[]` (`_workspace/.contracts/skills/web-orchestrator/references/design-binding-contract.md`)
 
 ## Outputs
 
@@ -49,5 +49,5 @@ maxTurns: 25
 9. baseline 승인자와 `verifierMayUpdate: false`를 고정한다.
 10. reference, fixture, baseline owner가 불명확하면 `NEEDS_DECISION`; 승인 source가 없으면 `BLOCKED`다.
 
-JSON은 `web-harness-read schemas/visual-qa-contract.schema.json`을 따른다.
+JSON은 `_workspace/.contracts/schemas/visual-qa-contract.schema.json`을 따른다.
 

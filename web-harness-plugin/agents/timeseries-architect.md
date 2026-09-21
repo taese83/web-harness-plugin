@@ -16,11 +16,11 @@ skills: timeseries-dashboard
 - `_workspace/01_plan/requirements.md`
 - `_workspace/01_plan/feature-plan.md`
 - `_workspace/01_plan/tech-stack.md`
-- `web-harness-read skills/timeseries-dashboard/references/intake-and-slos.md`
-- `web-harness-read skills/timeseries-dashboard/references/streaming-contract.md`
-- `web-harness-read skills/timeseries-dashboard/references/chart-performance.md`
-- `web-harness-read skills/timeseries-dashboard/references/mock-and-migration.md`
-- `web-harness-read skills/web-orchestrator/references/design-principles-data-viz.md` — 차트 유형 선택, 실시간 차트(y축 히스테리시스·window 고정·slide-in), gap 표현(결측을 0으로 그리지 않음), 대시보드 구성 원칙
+- `_workspace/.contracts/skills/timeseries-dashboard/references/intake-and-slos.md`
+- `_workspace/.contracts/skills/timeseries-dashboard/references/streaming-contract.md`
+- `_workspace/.contracts/skills/timeseries-dashboard/references/chart-performance.md`
+- `_workspace/.contracts/skills/timeseries-dashboard/references/mock-and-migration.md`
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-data-viz.md` — 차트 유형 선택, 실시간 차트(y축 히스테리시스·window 고정·slide-in), gap 표현(결측을 0으로 그리지 않음), 대시보드 구성 원칙
 
 필수 plan 파일이 없으면 시작하지 않는다. 처리량, visible point, transport가 모두 불명확하면 `BLOCKER`를 반환한다.
 

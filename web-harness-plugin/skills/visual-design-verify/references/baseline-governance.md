@@ -22,7 +22,7 @@ verifier와 일반 quality runner는 `--update-snapshots`를 실행하지 않는
 
 ## Manifest
 
-`_workspace/02_design/visual-baseline-manifest.json`은 `web-harness-read schemas/visual-baseline-manifest.schema.json`을 따른다.
+`_workspace/02_design/visual-baseline-manifest.json`은 `_workspace/.contracts/schemas/visual-baseline-manifest.schema.json`을 따른다.
 
 각 entry:
 

@@ -14,7 +14,7 @@ metadata:
 
 시계열 대시보드의 데이터 예산, historical snapshot, realtime stream, 차트 렌더링, Mock 전환을 하나의 계약으로 설계하고 구현한다.
 
-항상 `references/detection-contract.md`와 `references/intake-and-slos.md`를 읽는다. 기존 프로젝트를 수정하면 `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md`도 읽는다. API/stream 설계 전 `references/streaming-contract.md`, 차트 구현 전 `references/chart-performance.md`, Mock 또는 실제 연결 작업 전 `references/mock-and-migration.md`를 읽는다.
+항상 `references/detection-contract.md`와 `references/intake-and-slos.md`를 읽는다. 기존 프로젝트를 수정하면 `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md`도 읽는다. API/stream 설계 전 `references/streaming-contract.md`, 차트 구현 전 `references/chart-performance.md`, Mock 또는 실제 연결 작업 전 `references/mock-and-migration.md`를 읽는다.
 
 ## Start
 

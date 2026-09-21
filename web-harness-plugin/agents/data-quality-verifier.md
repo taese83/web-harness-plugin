@@ -21,7 +21,7 @@ maxTurns: 35
 - temp validation, atomic promotion, last-known-good 보존, stale metadata
 - root/workspace/provider clean-build의 cwd와 required artifact parity
 - scheduled refresh concurrency와 실패 artifact의 promotion 차단
-- **`INJECTION_SUSPECT` 소비** (`web-harness-read skills/web-orchestrator/references/untrusted-content-quarantine.md`): ① normalization에 지시형 패턴 탐지가 **구현돼 있는지** ② 적중 항목이 promotion에서 제외되는지 ③ 기록된 마커 목록. 탐지 코드가 아예 없으면 "마커 0건"을 안전으로 읽지 않는다 — 그건 미구현이다
+- **`INJECTION_SUSPECT` 소비** (`_workspace/.contracts/skills/web-orchestrator/references/untrusted-content-quarantine.md`): ① normalization에 지시형 패턴 탐지가 **구현돼 있는지** ② 적중 항목이 promotion에서 제외되는지 ③ 기록된 마커 목록. 탐지 코드가 아예 없으면 "마커 0건"을 안전으로 읽지 않는다 — 그건 미구현이다
 
 ## 판정 규칙
 

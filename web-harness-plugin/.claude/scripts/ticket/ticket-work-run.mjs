@@ -2,17 +2,18 @@
 //
 // 순서: 개발 티켓인가(팀이 선언한 분류) → 계획 WORK가 아닌가 → 인젝션 스캔(fail-closed) → **배정 먼저**(남이 맡았으면 멈춘다) →
 // 판정서가 있는가 → CLI 검증 → 착수 불가면 요청 코멘트 미리보기 → 확인하면 코멘트 → 착수 가능이면 미리보기 → 확인하면 로컬 등록
-// (임의 디자인이면 알림 코멘트) → 기존 WORK 픽업으로 이어진다.
+// (임의 디자인·기획 미정 가정이면 알림 코멘트) → 기존 WORK 픽업으로 이어진다.
 // **티켓 원본은 고치지 않는다** — 확인한 판정은 이 개발자의 로컬 등록 기록이다(git 제외). 다른 클론은 배정·상태로 안다.
 import {existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync} from 'node:fs'
 import {dirname, join} from 'node:path'
-import {buildWorkMarker, classifyTicketKind, parseWorkMarker, stripWorkMarker, withWorkMarker} from './work-refs.mjs'
+import {buildWorkMarker, classifyTicketKind, isTicketKeyRef, normalizeTicketKeyRef, parseWorkMarker, stripWorkMarker, withWorkMarker} from './work-refs.mjs'
 import {quarantineExcerpt, scanUntrustedIssue} from './pickup.mjs'
 import {classifyByComponent, DEV_TICKET} from './intake.mjs'
 import {computeAssignmentPlan} from './assign.mjs'
 import {bounceComment, resolveCommentLanguage} from './readiness.mjs'
 import {readDeclaredLanguage} from './ticket-config.mjs'
 import {assessmentDigest, assessmentPath, assessmentSnapshotPath, notifiedPath, originalBodyOf, registrationPath, renderTicketWorkBody,
+  overlapConfirmToken, resolveTicketDependencies,
   TICKET_ASSESSMENTS_DIR, ticketBodyDigest, ticketPlanId, ticketVirtualPlan, ticketWorkDefinition, ticketWorkId, validateTicketAssessment} from './ticket-work.mjs'
 
 const list = value => (Array.isArray(value) ? value : [])
@@ -85,17 +86,37 @@ export function readLocalTicketWork(root) {
 export function withTicketRegistrations(state, registrations = [], verdicts = []) {
   const works = new Map(state?.works ?? [])
   const tickets = new Map(state?.tickets ?? [])
-  for (const registration of registrations.filter(item => item && !item.error)) {
-    works.set(registration.workId, {...(works.get(registration.workId) ?? {}), status: 'published', origin: 'ticket', ticketKey: registration.ticketKey,
+  const valid = registrations.filter(item => item && !item.error)
+  for (const registration of valid) {
+    // 앞선 등록이 이 작업을 선행 자리표시로 먼저 두었을 수 있다 — 자리표시 표지는 물려받지 않는다(보드가 자리표시를 거른다).
+    const {placeholder: _placeholder, ...previous} = works.get(registration.workId) ?? {}
+    works.set(registration.workId, {...previous, status: 'published', origin: 'ticket', ticketKey: registration.ticketKey,
       provider: registration.provider ?? null,
       planId: registration.planId, planDigest: registration.planDigest, definition: registration.definition})
+  }
+  // 자리표시는 등록을 모두 겹친 뒤에 둔다 — 등록된 작업은 자리표시가 되지 않는다.
+  for (const registration of valid) {
     list(registration.definition?.dependsOn).forEach((dep, index) => {
       const key = list(registration.dependsOnKeys)[index]
-      if (key && !dep.startsWith('UNRESOLVED:') && !works.has(dep)) works.set(dep, {status: 'published', origin: 'ticket', ticketKey: key, placeholder: true})
+      if (key && !works.has(dep)) works.set(dep, {status: 'published', origin: 'ticket', ticketKey: key, placeholder: true})
     })
   }
   for (const {ticketKey, verdict, workId} of verdicts) if (!tickets.has(String(ticketKey))) tickets.set(String(ticketKey), {verdict, workId})
   return {...(state ?? {}), works, tickets}
+}
+
+/**
+ * 계획 WORK가 선행으로 적은 **사람 티켓 키**에 자리를 둔다(순수) — 그 키로 트래커·PR 완료를 겹쳐 선행 대기를 잰다.
+ * 자리는 계획이 적은 문자열 그대로를 키로 쓴다(픽업·보드가 `dependsOn` 값으로 찾는다).
+ */
+export function withExternalDependencies(state, plan) {
+  const works = new Map(state?.works ?? [])
+  for (const work of list(plan?.workItems)) {
+    for (const dep of list(work.dependsOn)) {
+      if (isTicketKeyRef(dep) && !works.has(dep)) works.set(dep, {status: 'published', origin: 'ticket', ticketKey: normalizeTicketKeyRef(dep), placeholder: true, external: true})
+    }
+  }
+  return {...(state ?? {}), works}
 }
 
 /** 수정 범위가 겹치는지 볼 진행 중 작업(순수) — 발행·등록됐고 머지로 끝나지 않은 계획·티켓 작업. */
@@ -127,6 +148,14 @@ function designNoticeComment({designDebt, lang}) {
   return lang === 'en'
     ? ['Implementing the feature first without a design (implementer-decided design). Once a design is ready, align it in a separate ticket.', '', 'Decided by the implementer:', ...items].join('\n')
     : ['디자인 없이 기능을 먼저 구현합니다(임의 디자인). 디자인이 나오면 별도 티켓으로 맞춥니다.', '', '임의로 정하는 것:', ...items].join('\n')
+}
+
+/** 기획 미정을 가정으로 두고 진행한다는 알림 — 기획자가 가정을 보고 바로잡을 수 있게 한다. */
+function assumptionNoticeComment({assumptions, lang}) {
+  const items = assumptions.map((item, index) => `${index + 1}. ${item.what} → ${item.assumed}${item.why ? ` (${item.why})` : ''}`)
+  return lang === 'en'
+    ? ['Proceeding with the following undecided details assumed. If an assumption is wrong, say so here and it will be corrected in a follow-up.', '', 'Assumptions:', ...items].join('\n')
+    : ['아래 미정 사항을 가정하고 진행합니다. 가정이 틀렸으면 여기에 알려 주세요 — 후속으로 바로잡습니다.', '', '가정:', ...items].join('\n')
 }
 
 /** 이미 남긴 코멘트인가(로컬) — 같은 판정으로 다시 확인해도 코멘트를 쌓지 않는다. */
@@ -293,13 +322,13 @@ export async function resolveTicketPickup({root, ticketKey, developer, issue, st
   // 격리 사본은 판정 한 번을 위한 것이다 — 판정서가 검증을 통과하면 지운다(실패하면 다시 판정해야 하므로 남긴다).
   if (!flags['dry-run']) rmSync(join(root, assessmentSnapshotPath(ticketKey)), {force: true})
   const digest = checked.digest
-  if (assessment.verdict === 'startable' && checked.bounce) {
-    return {result: {ok: false, mode: 'work', phase: 'TICKET_NOT_STARTABLE', ticketKey, externalWrites: 0, bounce: checked.bounce}}
-  }
+  const overlaps = assessment.verdict === 'startable' ? list(checked.overlaps) : []
+  const expected = overlapConfirmToken(digest, overlaps)
   const lang = resolveCommentLanguage({declared: readDeclaredLanguage(root), text: current?.title ?? ''})
   const confirmed = Boolean(flags.assessment) && !flags['dry-run']
-  if (flags.assessment && String(flags.assessment) !== digest) {
-    return {result: {ok: false, mode: 'work', phase: 'TICKET_ASSESSMENT_MISMATCH', ticketKey, expected: digest,
+  if (flags.assessment && String(flags.assessment) !== expected) {
+    // 기대 지문을 돌려주지 않는다 — 겹침을 묶은 지문은 미리보기를 본 증거라서, 응답으로 새면 보지 않고 확인할 수 있다.
+    return {result: {ok: false, mode: 'work', phase: 'TICKET_ASSESSMENT_MISMATCH', ticketKey,
       guidance: '확인한 판정서가 지금 판정서와 다릅니다. 미리보기를 다시 보고 확인하세요.'}}
   }
 
@@ -327,38 +356,60 @@ export async function resolveTicketPickup({root, ticketKey, developer, issue, st
   }
 
   // ── 착수 가능: 미리보기(외부 쓰기 0) → 확인 → 로컬 등록 ──
-  const definition = ticketWorkDefinition({assessment, ticketKey, provider: providerName, title: current?.title})
   const keys = new Map([...activeState.works.entries()].filter(([, item]) => item.status === 'published').map(([id, item]) => [id, item.ticketKey]))
-  const dependsOn = definition.dependsOn.map(dep => ({workId: dep, ticketKey: keys.get(dep) ?? null,
-    title: list(plan?.workItems).find(work => work.workId === dep)?.title ?? activeState.works.get(dep)?.definition?.title ?? null}))
+  const keyedWorks = new Map([...keys.entries()].filter(([, key]) => key).map(([id, key]) => [String(key), id]))
+  const dependencies = resolveTicketDependencies({dependsOn: assessment.dependsOn, provider: providerName, keyedWorks})
+  const definition = ticketWorkDefinition({assessment, ticketKey, provider: providerName, title: current?.title, dependencies})
+  const dependsOn = dependencies.map(dep => ({workId: dep.workId, ticketKey: dep.ticketKey ?? keys.get(dep.workId) ?? null,
+    title: list(plan?.workItems).find(work => work.workId === dep.workId)?.title ?? activeState.works.get(dep.workId)?.definition?.title ?? null}))
   const designNotice = assessment.designByImplementer ? designNoticeComment({designDebt: definition.designDebt, lang}) : null
+  const assumptionNotice = list(definition.assumptions).length > 0 ? assumptionNoticeComment({assumptions: definition.assumptions, lang}) : null
   // 사용자가 판단할 것만 묶는다 — AI가 **제안한** 항목·수정 범위·레인·임의 디자인. 티켓에는 임의 디자인 알림 외에는 쓰지 않는다.
   const review = {lane: assessment.lane, specApproval: definition.specApproval, writePaths: definition.writePaths,
     nonGoals: definition.nonGoals, designDebt: definition.designDebt.map(item => ({what: item.what, why: item.why ?? ''})),
     ...(assessment.designByImplementer ? {designByImplementer: {source: assessment.designByImplementer.source,
       ...(assessment.designByImplementer.quote ? {quote: assessment.designByImplementer.quote} : {}), comment: designNotice}} : {}),
+    ...(assumptionNotice ? {assumptions: {items: definition.assumptions, comment: assumptionNotice}} : {}),
+    ...(overlaps.length > 0 ? {overlaps: overlaps.map(work => ({ticketKey: work.ticketKey ?? null, writePaths: work.writePaths}))} : {}),
+    // 선행도 승인 대상이다 — 키를 잘못 적으면 영영 선행 대기로 남으니 어떤 작업으로 풀렸는지와 아는 작업인지 보여 준다.
+    ...(dependsOn.length > 0 ? {dependsOn: dependsOn.map(dep => ({ticketKey: dep.ticketKey, title: dep.title,
+      known: Boolean(activeState.works.get(dep.workId) && !activeState.works.get(dep.workId).placeholder)}))} : {}),
     proposed: [...list(assessment.acceptance).filter(item => item?.source === 'proposed').map(item => ({kind: 'acceptance', text: item.text})),
       ...list(assessment.testItems).filter(item => item?.source === 'proposed').map(item => ({kind: 'test', id: item.id, text: item.text}))]}
   if (!confirmed) {
+    // 동료가 진행 중인 개발 티켓(배정·상태) — 수정 범위는 모르므로 겹침 판단은 사람에게 맡긴다.
+    const peerRead = provider ? await readDevTickets({provider, config}) : {checked: false, reason: 'provider가 없다', items: []}
+    const peers = list(peerRead.items)
+      .filter(item => String(item.ticketKey) !== String(ticketKey) && list(item.assignees).length > 0 && !list(item.assignees).includes(developer))
+      .map(item => ({ticketKey: item.ticketKey, summary: item.summary ?? null, assignees: list(item.assignees), ...(item.status ? {status: item.status} : {})}))
     return {result: {ok: true, mode: 'work', phase: 'TICKET_WORK_PREVIEW', ticketKey, workId, lane: assessment.lane, assessmentDigest: digest,
-      writePaths: definition.writePaths, specApproval: definition.specApproval, review, confirmWith: {flag: '--assessment', value: digest},
+      writePaths: definition.writePaths, specApproval: definition.specApproval, review: {...review, ...(peers.length > 0 ? {peers} : {})},
+      confirmWith: {flag: '--assessment', value: expected},
       acceptance: assessment.acceptance, testItems: assessment.testItems, reregister: Boolean(registered), externalWrites: 0, ...claimedNote,
       ...(overlapNote ? {overlapCheck: {guidance: `끝난 작업을 모두 확인하지 못했습니다: ${overlapNote}`}} : {}), ...(flags['dry-run'] ? {dryRun: true} : {}),
+      ...(peerRead.checked ? {} : {peersCheck: {guidance: `동료가 진행 중인 개발 티켓을 모두 읽지 못했습니다${peerRead.reason ? `: ${peerRead.reason}` : ''} — 없다는 뜻이 아닙니다.`}}),
       guidance: '확인하면 이 판정으로 착수합니다. 판정은 내 컴퓨터에만 기록하고 티켓 본문은 고치지 않습니다.'
         + (designNotice ? ' 임의 디자인으로 진행한다는 코멘트를 티켓에 남깁니다.' : '')
+        + (assumptionNotice ? ' 미정 사항을 가정하고 진행한다는 코멘트를 티켓에 남깁니다.' : '')
+        + (overlaps.length > 0 ? ` 진행 중인 작업 ${overlaps.length}건과 수정 범위가 겹칩니다 — 확인하면 겹친 채로 착수하고 충돌은 머지할 때 정리합니다.` : '')
         + (definition.specApproval === 'required' ? ' 새 계약이 걸린 작업이라 구현 전에 /wh change로 스팩 승인을 한 번 더 받습니다.' : '')}}
   }
   // ── 확인 = 로컬 등록 ──
   const registration = {schemaVersion: 1, ticketKey: String(ticketKey), provider: providerName, workId, planId: ticketPlanId(providerName, ticketKey),
     planDigest: digest, definition, dependsOnKeys: dependsOn.map(dep => dep.ticketKey ?? null), bodyDigest: ticketBodyDigest(current?.body ?? ''),
-    confirmedAt: new Date().toISOString()}
+    ...(overlaps.length > 0 ? {acceptedOverlaps: overlaps} : {}), confirmedAt: new Date().toISOString()}
   writeJson(root, registrationPath(ticketKey), registration)
   const designNotified = designNotice ? await postOnce({root, provider, ticketKey, id: `design:${digest}`, text: designNotice, io}) : null
+  const assumptionNotified = assumptionNotice ? await postOnce({root, provider, ticketKey, id: `assume:${digest}`, text: assumptionNotice, io}) : null
+  const unposted = [
+    ...(designNotified && !designNotified.done && designNotified.reason !== 'already-posted' ? ['임의 디자인으로 진행한다는 코멘트'] : []),
+    ...(assumptionNotified && !assumptionNotified.done && assumptionNotified.reason !== 'already-posted' ? ['미정 사항을 가정한다는 코멘트'] : []),
+  ]
   return {registration, context: ticketPickupContext(registration), issue: virtualTicketIssue(current, registration, {format: provider?.docFormat, lang}),
     extra: {ticketWork: {registered: true, reregistered: Boolean(registered), workId, assessmentDigest: digest, lane: assessment.lane, ...claimedNote,
-      ...(designNotified ? {designNotice: designNotified} : {}), externalWrites: (claimed.assigned ? 1 : 0) + (designNotified?.done ? 1 : 0),
-      ...(designNotified && !designNotified.done && designNotified.reason !== 'already-posted'
-        ? {guidance: '임의 디자인으로 진행한다는 코멘트를 티켓에 남기지 못했습니다. 디자이너·기획자에게 직접 알리세요.'} : {})}}}
+      ...(designNotified ? {designNotice: designNotified} : {}), ...(assumptionNotified ? {assumptionNotice: assumptionNotified} : {}),
+      externalWrites: (claimed.assigned ? 1 : 0) + (designNotified?.done ? 1 : 0) + (assumptionNotified?.done ? 1 : 0),
+      ...(unposted.length > 0 ? {guidance: `${unposted.join('·')}를 티켓에 남기지 못했습니다. 디자이너·기획자에게 직접 알리세요.`} : {})}}}
 }
 
 export {keyOf}

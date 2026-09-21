@@ -24,7 +24,7 @@
 
 ```json
 {
-  "$schema": "web-harness-read schemas/runtime-data-contract.schema.json",
+  "$schema": "_workspace/.contracts/schemas/runtime-data-contract.schema.json",
   "schemaVersion": 1,
   "mode": "static-snapshot",
   "authoritativeSource": "source identifier",

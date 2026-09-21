@@ -220,7 +220,7 @@ web-harness-script spec --project-root {project-root}
 ```
 
 stdout을 `_workspace/03_dev/spec.json`에 그대로 저장한다 — `project-profile.json`·
-`web-execution-plan.json`과 같은 관례다. 스키마는 `web-harness-read schemas/spec.schema.json`.
+`web-execution-plan.json`과 같은 관례다. 스키마는 `_workspace/.contracts/schemas/spec.schema.json`.
 
 **스팩 확정은 구현 스폰의 전제조건이다.** `system-architect`(결정 기록)와 이 확정 단계는
 성격이 다르다 — 전자는 관측이라 실패해도 진행하지만, 후자가 없으면 `developer`는 **아무것도

@@ -24,7 +24,7 @@ maxTurns: 20
 3. 동일 근거로 안전하게 해소되는 표현 차이만 통합한다. 사용자 목표·범위·데이터·권한이 충돌하면 임의 선택하지 않고 `NEEDS_DECISION | BLOCKER`로 둔다
 4. "결정이 필요한 사항"은 별도 섹션으로 분리한다
 5. crawler/scheduled sync/generated artifact가 있는데 requirements 또는 tech-stack에서 `EXTERNAL_DATA_INGESTION_MODE`, 두 계약의 선행 조건, `external-ingestion` capability가 빠졌으면 임의 보정하지 말고 `BLOCKER`로 기록한다
-6. `web-harness-read skills/web-plan/references/planning-readiness-contract.md`의 항목(UX Check·critical state·데이터 전략·노력도)은 원본이 정본이다 — brief에는 원본끼리 어긋나거나 미결인 것만 옮긴다.
+6. `_workspace/.contracts/skills/web-plan/references/planning-readiness-contract.md`의 항목(UX Check·critical state·데이터 전략·노력도)은 원본이 정본이다 — brief에는 원본끼리 어긋나거나 미결인 것만 옮긴다.
 
 ## 출력 구조
 
@@ -51,7 +51,7 @@ EXTERNAL_DATA_INGESTION_MODE: true   ← 외부 수집이 요구될 때만 적�
 **`SURFACE_MODEL`을 project-brief에 적는다** — `EXTERNAL_DATA_INGESTION_MODE`와 같이
 **독립 행 `SURFACE_MODEL: overlay`** 형식으로 적는다(뒤에 기계 검사를 붙일 수 있도록). 화면 단위를 무엇으로 구분하는가이며 값은
 `route`(URL 경로 — 기본값)와 `overlay`(호스트 표면 위에 열리고 닫히는 모달·패널형 서피스)다.
-정본 정의와 커버 범위는 `web-harness-read agents/layout-designer.md`「서피스 모델」이다.
+정본 정의와 커버 범위는 `_workspace/.contracts/agents/layout-designer.md`「서피스 모델」이다.
 
 - **판정하지 말고 근거가 있을 때만 적는다.** 기획이 URL·라우트·페이지 이동을 말하면 `route`,
   호스트 표면 위 오버레이만으로 기술하면 `overlay`다. **둘 다 근거가 없으면 `route`를 적지 말고

@@ -87,7 +87,7 @@ Gate A·B·C와 스폰 완결성 게이트는 이 규율과 무관하게 그대�
 스폰 범위(`minimal-change-contract.md` Scope Expansion).
 
 1. **`developer`는 멈추고 요청을 반환한다.** 스팩 밖 결정을 코드로 먼저 만들거나 우회 구현하지 않고,
-   `SPEC_CHANGE_REQUEST` 블록(`web-harness-read agents/developer.md`)을 싣고 `SPAWN_RESULT: blocked`로 끝낸다.
+   `SPEC_CHANGE_REQUEST` 블록(`_workspace/.contracts/agents/developer.md`)을 싣고 `SPAWN_RESULT: blocked`로 끝낸다.
 2. **오케스트레이터가 분류하고 모은다.** 디자인·요구사항·범위면 위 경로로 보낸다. 같은 단계에서 나온
    스팩 요청은 모아서 한 번에 묻는다(`interaction-contract.md` 질문 규칙).
 3. **개발자에게 묻는다.** 요청마다 무엇을 왜 바꾸려는지와 선택지 — ⓐ 스팩을 바꾼다(또는 다른 값으로)
@@ -110,7 +110,7 @@ source 존재 여부로 `CHANGE_MODE: greenfield | existing-change`를 먼저 �
 
 `existing-change`이면 `_workspace/02_design/integration-overlay.json`이 있어야 한다 — **스팩 확정 전에** 만든다(`solution-design-contract.md` §6). 여기서 처음 만들면 스팩이 즉시 stale이 된다.
 
-프로필은 **스팩 확정 전에** 해석돼 있어야 한다(§6) — `project-profile.json`이 `LOCK_INPUTS`라 여기서 처음 만들면 확정한 스팩이 곧바로 낡는다. 아직 없으면 `web-profile-contract.md`의 resolver를 실행하고 **스팩을 재확정한다.** 이때 intake에서 판별한 요청 언어를 `outputLanguage`로 프로필에 병합하고 산출 스폰마다 주입한다 — 규약·검사는 `development-gates-contract.md` Gate L. 기존 project는 `--requested auto`, greenfield는 tech-stack의 명시 profile/provider/deployment/capability를 전달한다. resolver는 crawler script, ingestion package, scheduled refresh workflow를 발견했는데 두 ingestion 계약 또는 `external-ingestion` capability가 없으면 fail-closed해야 한다. stable stdout JSON을 `_workspace/01_plan/project-profile.json`에 그대로 저장하고 `--profile-file`로 DAG를 컴파일해 `_workspace/03_dev/web-execution-plan.json`에 저장한다. profile conflict, provider-target conflict, forbidden marker, ingestion contract/capability 누락, stale adapter hash는 `BLOCKED`다. **구현 스폰마다 `web-harness-read skills/component-gen/references/ts-conventions.md`와 테스트 규약 `testing.md` 경로를 prompt에 전달한다** — Phase 2가 designer에게 디자인 원칙 허브를 넘기는 것과 같은 방식이며, 코드 작성 규약이 사후 `code-reviewer` 지적이 아니라 생성 시점에 적용되게 한다(포매팅 정본은 생성된 `.prettierrc`).
+프로필은 **스팩 확정 전에** 해석돼 있어야 한다(§6) — `project-profile.json`이 `LOCK_INPUTS`라 여기서 처음 만들면 확정한 스팩이 곧바로 낡는다. 아직 없으면 `web-profile-contract.md`의 resolver를 실행하고 **스팩을 재확정한다.** 이때 intake에서 판별한 요청 언어를 `outputLanguage`로 프로필에 병합하고 산출 스폰마다 주입한다 — 규약·검사는 `development-gates-contract.md` Gate L. 기존 project는 `--requested auto`, greenfield는 tech-stack의 명시 profile/provider/deployment/capability를 전달한다. resolver는 crawler script, ingestion package, scheduled refresh workflow를 발견했는데 두 ingestion 계약 또는 `external-ingestion` capability가 없으면 fail-closed해야 한다. stable stdout JSON을 `_workspace/01_plan/project-profile.json`에 그대로 저장하고 `--profile-file`로 DAG를 컴파일해 `_workspace/03_dev/web-execution-plan.json`에 저장한다. profile conflict, provider-target conflict, forbidden marker, ingestion contract/capability 누락, stale adapter hash는 `BLOCKED`다. **구현 스폰마다 `_workspace/.contracts/skills/component-gen/references/ts-conventions.md`와 테스트 규약 `testing.md` 경로를 prompt에 전달한다** — Phase 2가 designer에게 디자인 원칙 허브를 넘기는 것과 같은 방식이며, 코드 작성 규약이 사후 `code-reviewer` 지적이 아니라 생성 시점에 적용되게 한다(포매팅 정본은 생성된 `.prettierrc`).
 
 **스팩이 확정돼 있으면(`_workspace/03_dev/spec.json`) `references/shape-routing-contract.md`를 먼저 읽고 `targetShapes`가 고르는 빌더 세트를 적용한다** — `library`·`cli`는 `shape-routing-contract.md` §2의 `library` 행 세트로 가고 아래 웹 파이프라인을 돌지 않는다. 확정이 없으면 기존 `WEB_PROFILE` 경로다(무발화). `WEB_PROFILE: next-app-fullstack`이면 `/next-app`에 Phase 3 구현과 Next contract QA를 위임하고 아래 Vite 전용 1~6단계를 실행하지 않는다. `WEB_PROFILE: react-vite-spa` 또는 `vite-serverless-hybrid`일 때만 아래 단계를 실행한다 — hybrid는 같은 단계에 serverless handler 구현이 추가된다.
 
@@ -207,7 +207,7 @@ web-harness-script validate-handoff-readiness --project {root} --design-debt
   `acknowledgedBy`로 표시해 **자기신고가 파일 대조가 된다.**
   분모가 없어 인용할 행이 없으면 ⓐ의 대가가 남고 ⓑ도 성립하지 않는다: 다음 인계에서 그 PC가
   stranded로 잡히면 **그때 표를 세우고 인용을 붙인다**. 다만 **`developer`는 그 상태에서
-  범위를 명시한 로그 엔트리를 인수로 받는다**(`web-harness-read agents/developer.md` 「멈추지 않는 두
+  범위를 명시한 로그 엔트리를 인수로 받는다**(`_workspace/.contracts/agents/developer.md` 「멈추지 않는 두
   경우」 예외) — 적을 행이 없다는 이유로 구현이 멈추면 사용자가 이 절차를 그대로 따랐는데도
   완결되지 않는다. 기계 보고가 세지 못하는 것과 구현이 멈추는 것은 다른 문제다. 인용할 자리를 만드는 것이 곧 분모를
   세우는 것이다.

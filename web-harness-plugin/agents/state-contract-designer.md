@@ -15,7 +15,7 @@ maxTurns: 25
 - `_workspace/01_plan/requirements.md`
 - `_workspace/01_plan/feature-plan.md`
 - `_workspace/01_plan/ux-brief.md`
-- `web-harness-read skills/web-orchestrator/references/local-domain-state.md`
+- `_workspace/.contracts/skills/web-orchestrator/references/local-domain-state.md`
 
 ## 작업 원칙
 
@@ -62,8 +62,8 @@ LOCAL_DOMAIN_STATE_MODE: true
 
 출력 파일: `_workspace/02_design/state-contract.md`
 
-`web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘거나 aggregate가 8개를 넘으면 `_workspace/02_design/state-contract/`로 분할하고 aggregate별 절 + 공통 persistence·verification 절 1개 + `INDEX.md`를 만든다. Mode 선언과 State Ownership 표는 `INDEX.md`의 전역 결정에 둔다.
+`_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘거나 aggregate가 8개를 넘으면 `_workspace/02_design/state-contract/`로 분할하고 aggregate별 절 + 공통 persistence·verification 절 1개 + `INDEX.md`를 만든다. Mode 선언과 State Ownership 표는 `INDEX.md`의 전역 결정에 둔다.
 
 ## 입력 읽기
 
-`_workspace/01_plan/requirements/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(상태·엣지 시나리오)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`requirements.md`)을 읽는다. 규칙은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
+`_workspace/01_plan/requirements/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(상태·엣지 시나리오)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`requirements.md`)을 읽는다. 규칙은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->

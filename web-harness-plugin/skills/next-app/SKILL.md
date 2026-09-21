@@ -25,7 +25,7 @@ metadata:
    - `react-vite-spa`: 이 skill을 중단하고 기존 Vite 개발 경로로 반환한다.
    - `next-app-fullstack`: 계속 진행한다.
    - 그 외 또는 충돌/모호성: `BLOCKED`로 반환한다.
-4. `web-harness-read adapters/next-app-fullstack/adapter.json`의 `supportLevel`을 확인한다. golden production runtime evidence가 승인되기 전에는 `compatible`을 `certified`로 표현하지 않는다.
+4. `_workspace/.contracts/adapters/next-app-fullstack/adapter.json`의 `supportLevel`을 확인한다. golden production runtime evidence가 승인되기 전에는 `compatible`을 `certified`로 표현하지 않는다.
 5. 다음 plan을 컴파일하고 결과 JSON을 모든 profile의 canonical 경로인 `_workspace/03_dev/web-execution-plan.json`에 그대로 기록한다.
    ```bash
    web-harness-script web-core/compile-execution-plan --profile-file _workspace/01_plan/project-profile.json

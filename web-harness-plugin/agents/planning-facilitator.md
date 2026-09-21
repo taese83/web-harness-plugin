@@ -13,8 +13,8 @@ maxTurns: 20
 ## 입력과 계약
 
 1. `/web-plan` 또는 `/web-orchestrator`의 사용자 요청과 기존 source artifact를 읽는다.
-2. `web-harness-read skills/web-plan/references/planning-facilitation-contract.md`를 따른다.
-3. `web-harness-read skills/web-plan/references/planning-readiness-contract.md`를 따른다.
+2. `_workspace/.contracts/skills/web-plan/references/planning-facilitation-contract.md`를 따른다.
+3. `_workspace/.contracts/skills/web-plan/references/planning-readiness-contract.md`를 따른다.
 4. 이미 확인 가능한 내용을 다시 묻지 않고, 필요한 질문은 최대 3개씩 반환한다.
 5. 구현, prototype, commit, push, PR은 수행하지 않는다.
 
@@ -77,9 +77,9 @@ maxTurns: 20
 
 ## 디자인 방향 인테이크
 
-제품 목적이 고정된 뒤 한 라운드(최대 3질문)로 수집한다: 브랜드 제약(색/로고/폰트), 참조 무드(어떤 서비스의 어떤 점), 밀도/다크모드/주 사용 기기. 답을 모르면 재질문하지 않고 `ASSUMPTION(시안 확정)`로 기록한다 — 발산 조사가 커밋한 단일 시안의 프리뷰 승인에서 확정된다 (`web-harness-read skills/web-plan/references/design-readiness-contract.md`).
+제품 목적이 고정된 뒤 한 라운드(최대 3질문)로 수집한다: 브랜드 제약(색/로고/폰트), 참조 무드(어떤 서비스의 어떤 점), 밀도/다크모드/주 사용 기기. 답을 모르면 재질문하지 않고 `ASSUMPTION(시안 확정)`로 기록한다 — 발산 조사가 커밋한 단일 시안의 프리뷰 승인에서 확정된다 (`_workspace/.contracts/skills/web-plan/references/design-readiness-contract.md`).
 
 출력 파일:
 
 - `_workspace/01_plan/planning-context.md`
-- 사용자 답변 또는 방향 변경 시 `_workspace/01_plan/decision-log.md`에 엔트리 추가 — 형식·append-only·기록 기준선은 `web-harness-read skills/web-plan/references/plan-history-contract.md`를 따른다 (`PC-NNN`, 트리거, 대상 ID, before→after, 근거·승인, 영향 산출물)
+- 사용자 답변 또는 방향 변경 시 `_workspace/01_plan/decision-log.md`에 엔트리 추가 — 형식·append-only·기록 기준선은 `_workspace/.contracts/skills/web-plan/references/plan-history-contract.md`를 따른다 (`PC-NNN`, 트리거, 대상 ID, before→after, 근거·승인, 영향 산출물)

@@ -78,7 +78,7 @@ When the user invokes `/project-init` alone, start with:
 - 파일 생성은 Write 도구를 사용한다.
 - lockfile 생성, install, Git 초기화, MSW/Husky 초기화는 직접 shell command가 아니라 `run-package-operation.mjs`의 typed operation으로만 실행한다. lockfile diff 검토 전 install을 실행하지 않는다.
 - 생성 위치가 이미 존재하고 비어 있지 않으면 파일을 만들기 전에 사용자에게 확인한다.
-- 비어 있지 않은 위치의 기존 source 수정을 승인받았다면 `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md`를 적용하고 scaffold 전체 덮어쓰기를 금지한다.
+- 비어 있지 않은 위치의 기존 source 수정을 승인받았다면 `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md`를 적용하고 scaffold 전체 덮어쓰기를 금지한다.
 - package operation broker도 package code/network 또는 repository mutation을 수행하므로 실행 전 사용자 확인이 필요하다. maintainer/project settings에서 자동 승인하지 않는다.
 - 각 Phase의 모든 파일/명령이 끝난 뒤 다음 Phase로 넘어간다.
 - 오류가 발생하면 그 자리에서 보고하고 해결한 후 계속 진행한다.

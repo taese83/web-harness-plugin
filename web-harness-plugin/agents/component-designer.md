@@ -20,11 +20,11 @@ maxTurns: 20
 
 ## 디자인 원칙 입력 (필수)
 
-컴포넌트 경계·상태·컨트롤을 정하기 전에 다음 원칙 문서를 읽고 기본값으로 사용한다 (`web-harness-read skills/web-orchestrator/references/design-principles.md`의 소비 규칙 준수):
+컴포넌트 경계·상태·컨트롤을 정하기 전에 다음 원칙 문서를 읽고 기본값으로 사용한다 (`_workspace/.contracts/skills/web-orchestrator/references/design-principles.md`의 소비 규칙 준수):
 
-- `web-harness-read skills/web-orchestrator/references/design-principles-interaction-controls.md` — 컨트롤 선택 매트릭스(slider/radio/select/switch), 폼·validation·에러 메시지, 피드백(toast/inline/dialog, undo 우선), 로딩(스켈레톤·CLS 제로), 모달/드로어, 모션 duration/easing, DnD, 5개 상태 정의
-- `web-harness-read skills/web-orchestrator/references/design-principles-hierarchy-actions.md` — 버튼 3단계 위계·컨텍스트당 primary 1개, 다이얼로그 버튼 순서, 파괴적 액션(색+거리 분리, undo 우선)
-- 차트·대시보드 컴포넌트가 있으면 `web-harness-read skills/web-orchestrator/references/design-principles-data-viz.md` — 차트 유형 선택, 축·범례, 숫자 표현, 빈/gap/에러 상태
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-interaction-controls.md` — 컨트롤 선택 매트릭스(slider/radio/select/switch), 폼·validation·에러 메시지, 피드백(toast/inline/dialog, undo 우선), 로딩(스켈레톤·CLS 제로), 모달/드로어, 모션 duration/easing, DnD, 5개 상태 정의
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-hierarchy-actions.md` — 버튼 3단계 위계·컨텍스트당 primary 1개, 다이얼로그 버튼 순서, 파괴적 액션(색+거리 분리, undo 우선)
+- 차트·대시보드 컴포넌트가 있으면 `_workspace/.contracts/skills/web-orchestrator/references/design-principles-data-viz.md` — 차트 유형 선택, 축·범례, 숫자 표현, 빈/gap/에러 상태
 
 원칙과 다른 컨트롤·패턴을 선택할 때는 component-spec 해당 컴포넌트에 근거 한 줄을 남긴다.
 
@@ -81,6 +81,6 @@ States: loading skeleton / populated / error
 
 출력 파일: `_workspace/02_design/component-spec.md`
 
-`web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘으면 `_workspace/02_design/component-spec/`으로 분할하고 FSD 레이어별(shared / features / widgets·pages) 절과 `INDEX.md`를 만든다. Props 인터페이스는 컴포넌트가 속한 레이어 절에 둔다.
+`_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘으면 `_workspace/02_design/component-spec/`으로 분할하고 FSD 레이어별(shared / features / widgets·pages) 절과 `INDEX.md`를 만든다. Props 인터페이스는 컴포넌트가 속한 레이어 절에 둔다.
 
 입력을 읽을 때도 같은 계약의 소비자 읽기 프로토콜을 따른다. `design-system/`, `layout-spec/`, `state-contract/` 디렉토리가 있으면 각 `INDEX.md`를 먼저 읽고 필요한 절만 읽는다. <!-- marker:consumer-read-protocol -->

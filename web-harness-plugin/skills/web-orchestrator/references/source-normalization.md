@@ -27,7 +27,7 @@ Use `_workspace/00_source/source-change-proposals.md` for suggested original-sou
   "작성자가 제외했다"와 "원문에 없었다"를 구별할 수 없다.
 - Convert design screens to routes and page responsibilities in `layout-spec.md`.
   `SURFACE_MODEL: overlay`(`project-brief.md` 선언)면 route가 아니라 **서피스 맵**으로 변환한다
-  — 어휘와 커버 범위는 `web-harness-read agents/layout-designer.md`「서피스 모델」이 정본이다.
+  — 어휘와 커버 범위는 `_workspace/.contracts/agents/layout-designer.md`「서피스 모델」이 정본이다.
 - Convert reusable UI patterns to `component-spec.md`.
 - Convert visual tokens to `design-system.md`; if tokens are missing, mark defaults as `ASSUMPTION`.
 - 여러 노드의 변수를 `design-system.md`로 합칠 때 **컬렉션을 통합하지 않는다.** 컬렉션별로 구분해
@@ -101,7 +101,7 @@ Treat these as `BLOCKER` unless the user explicitly allows assumptions:
 Source Trace 형식은 **전부 미검사**다.
 
 **사람 탐지망은 하나 있다.** `plan-reviewer`가 `00_source/`의 `ASSUMPTION`/`QUESTION` 분류와
-`QUESTION(Q-NNN)` 마커를 검토 항목으로 갖는다(`web-harness-read agents/plan-reviewer.md`). 그 판정은
+`QUESTION(Q-NNN)` 마커를 검토 항목으로 갖는다(`_workspace/.contracts/agents/plan-reviewer.md`). 그 판정은
 read-only 지적이지 게이트가 아니며, **`QUESTION(Q-NNN)` 마커를 읽는 기계 소비자는 여전히 0이다.**
 이 축은 `provenance-contract.md`의 `supplied` 자기보고와 같은 등급이고 `docs/protected-core.md`
 §4에 등록한다.

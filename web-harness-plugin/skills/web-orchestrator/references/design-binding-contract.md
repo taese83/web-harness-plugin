@@ -7,7 +7,7 @@
 
 이 계약은 그 한 칸을 채운다. **사람이 한 번 선언하고, 그 뒤로는 기계가 승계한다.**
 
-기계 정본은 `_workspace/00_source/design-binding.json`이며 `web-harness-read schemas/design-binding.schema.json`을
+기계 정본은 `_workspace/00_source/design-binding.json`이며 `_workspace/.contracts/schemas/design-binding.schema.json`을
 따른다. 수기 미러는 `.claude/scripts/design-binding-lib.mjs`다.
 
 ## 일반화 근거

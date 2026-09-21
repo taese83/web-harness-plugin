@@ -21,11 +21,11 @@ maxTurns: 20
 
 ## 디자인 원칙 입력 (필수)
 
-레이아웃·네비게이션을 정하기 전에 다음 원칙 문서를 읽고 기본값으로 사용한다 (`web-harness-read skills/web-orchestrator/references/design-principles.md`의 소비 규칙 준수):
+레이아웃·네비게이션을 정하기 전에 다음 원칙 문서를 읽고 기본값으로 사용한다 (`_workspace/.contracts/skills/web-orchestrator/references/design-principles.md`의 소비 규칙 준수):
 
-- `web-harness-read skills/web-orchestrator/references/design-principles-spacing-layout.md` — 여백 위계(요소<그룹<섹션, 인접 2배), 12컬럼 그리드·gutter·컨테이너 max-width, 밀도 수치
-- `web-harness-read skills/web-orchestrator/references/design-principles-hierarchy-actions.md` — 시각 위계 5도구, 화면당 primary 1개, 스캐닝 패턴, 버튼·CTA 배치
-- `web-harness-read skills/web-orchestrator/references/design-principles-navigation-ia.md` — 사이드바/톱바/탭 선택 기준, 메뉴 그룹핑, 반응형 전환(바텀탭 3~5개), 현재 위치 이중 신호
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-spacing-layout.md` — 여백 위계(요소<그룹<섹션, 인접 2배), 12컬럼 그리드·gutter·컨테이너 max-width, 밀도 수치
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-hierarchy-actions.md` — 시각 위계 5도구, 화면당 primary 1개, 스캐닝 패턴, 버튼·CTA 배치
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-navigation-ia.md` — 사이드바/톱바/탭 선택 기준, 메뉴 그룹핑, 반응형 전환(바텀탭 3~5개), 현재 위치 이중 신호
 
 원칙과 다른 배치를 결정할 때는 layout-spec 해당 절에 근거 한 줄을 남긴다.
 
@@ -33,7 +33,7 @@ maxTurns: 20
 
 `_workspace/00_source/design-binding.json`이 있으면 읽고, 라우팅 맵에 **route ↔ `PAGE-NNN` ↔
 `referenceId`**를 잇는다. 이 파일은 어느 시안이 어느 화면의 어느 조건인지를 사람이 선언한 기록이며
-(`web-harness-read skills/web-orchestrator/references/design-binding-contract.md`), 여기서 끊기면 시각 검증이
+(`_workspace/.contracts/skills/web-orchestrator/references/design-binding-contract.md`), 여기서 끊기면 시각 검증이
 자기 근거를 다시 지어내게 된다.
 
 - `resolution: derive`인 조건은 근거가 없다고 **결정된** 것이다 — 시스템 원리에서 파생하고,
@@ -143,10 +143,10 @@ eval fixture 미등록 — 명명 수준이다.
   title·description·canonical·OG·robots(noindex 여부)와 sitemap 포함 여부를 적고, CSR이면 초기 HTML에 없는 메타는
   JS 비실행 크롤러·소셜 미리보기에 보이지 않는다는 한계와 SSR 전환 조건을 함께 적는다(`seo-verifier`가 대조한다).
 
-`web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘거나 페이지가 8개를 넘으면 `_workspace/02_design/layout-spec/`으로 분할하고 글로벌 레이아웃·(라우팅 맵 또는 서피스 맵) 절 1개 + 페이지별 절 + `INDEX.md`를 만든다.
+`_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘거나 페이지가 8개를 넘으면 `_workspace/02_design/layout-spec/`으로 분할하고 글로벌 레이아웃·(라우팅 맵 또는 서피스 맵) 절 1개 + 페이지별 절 + `INDEX.md`를 만든다.
 
 `src/app/routes/Routes.tsx`와 각 페이지 파일은 직접 생성하지 않는다. 라우팅 코드가 80줄을 넘으면 문서 본문이 아니라 `routes.code.tsx`(분할 시 `layout-spec/routes.code.tsx`)로 분리하고 본문에는 경로만 남긴다. `developer`가 Phase 3에서 생성한다. `SURFACE_MODEL: overlay`면 라우팅 코드 자체가 없다 — 대신 **열림 상태를 어느 계층이 소유하는가**를 명세한다(서피스는 열고 닫히므로 그 상태에 주인이 없으면 두 곳에서 연다).
 
 ## 입력 읽기
 
-`_workspace/01_plan/ux-brief/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(화면 인벤토리·상태 matrix)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`ux-brief.md`)을 읽는다. 규칙은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
+`_workspace/01_plan/ux-brief/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(화면 인벤토리·상태 matrix)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`ux-brief.md`)을 읽는다. 규칙은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->

@@ -23,7 +23,7 @@ web-harness-script read-skill-section --catalog library-catalog --section <FEATU
 
 키가 불확실할 때만 `--list`로 18개 절 목록을 확인한다. 주요 키: `BASE_STACK` · `STATE` · `FORMS` · `UI` · `CHARTS` · `TABLES` · `DATETIME` · `AUTH` · `I18N` · `PAYMENT` · `MAPS` · `ANTIPATTERNS`.
 설치·설정이 확정되면 catalog 전체를 읽지 말고 `web-harness-script read-skill-section --catalog library-setup --section <library-key>`로 해당 snippet만 가져온다. 지원 key는 필요할 때 `--list`로 확인한다.
-기존 project에 dependency/config를 적용할 때는 `web-harness-read skills/web-orchestrator/references/minimal-change-contract.md`를 읽고 package와 필수 integration file만 change scope에 포함한다.
+기존 project에 dependency/config를 적용할 때는 `_workspace/.contracts/skills/web-orchestrator/references/minimal-change-contract.md`를 읽고 package와 필수 integration file만 change scope에 포함한다.
 
 ## Start
 

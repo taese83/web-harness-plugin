@@ -27,6 +27,7 @@ import {createHash} from 'node:crypto'
 import {existsSync, readdirSync, readFileSync, statSync} from 'node:fs'
 import {isAbsolute, join, relative, resolve, sep} from 'node:path'
 import {appendEvidenceLine, readEvidenceLog} from './evidence-log-lib.mjs'
+import {harnessVersion} from './harness-version.mjs'
 import {findLayerOverlaps, isLayerPathDeclared} from './agent-registry.mjs'
 import {pathToFileURL} from 'node:url'
 import {readShapeChecks} from './validate-shape-checks.mjs'
@@ -592,14 +593,18 @@ export const buildSpec = ({decision, digest, acceptanceIds}) => {
 export const isSpecStale = (spec, projectRoot) =>
   digestInputs(projectRoot).combined !== spec?.sourceDigest?.combined
 
+// 원장이 확정 버전을 남긴다 — 버전마다 검사 규칙이 달라 같은 스팩이 사람마다 다르게 판정될 수 있다.
+export {harnessVersion}
+
 // 스팩을 원장에 기록한다. 스팩이 stdout으로 나가 저장되는 시점과 같은 시점에 호출한다.
-export const recordSpec = (projectRoot, spec) => {
+export const recordSpec = (projectRoot, spec, {version = harnessVersion()} = {}) => {
   const record = {
     at: new Date().toISOString(),
     digest: specDigest(spec),
     sourceDigest: spec.sourceDigest?.combined ?? null,
     specTier: spec.specTier ?? null,
     targetShapes: spec.targetShapes ?? [],
+    harnessVersion: version,
   }
   appendEvidenceLine(join(resolve(projectRoot), SPEC_LEDGER), record)
   return record
@@ -619,9 +624,9 @@ export const inspectSpecLedger = (projectRoot, spec) => {
     return {state: 'DELETED', rows: rows.length, lastDigest: rows[rows.length - 1].digest}
   }
   const current = specDigest(spec)
-  const known = rows.some(row => row.digest === current)
-  return known
-    ? {state: 'OK', rows: rows.length}
+  const match = rows.findLast(row => row.digest === current)
+  return match
+    ? {state: 'OK', rows: rows.length, harnessVersion: typeof match.harnessVersion === 'string' ? match.harnessVersion : null}
     : {state: 'TAMPERED', rows: rows.length, currentDigest: current, lastDigest: rows[rows.length - 1].digest}
 }
 

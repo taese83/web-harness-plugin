@@ -30,7 +30,7 @@ maxTurns: 45
    - `architecture.pattern` — `existing`이면 기존 관례를 따른다
    - `moduleBoundaries` — 병렬 작업이 침범하지 않을 범위
    - `nonGoals` — 범위 밖으로 기록된 것
-2. **`_workspace/03_dev/change-scope.md`의 `ALLOWED_PATHS`** — 이번 스폰의 범위.
+2. **`_workspace/03_dev/change-scope.md`의 `ALLOWED_PATHS`** — 이번 스폰의 범위. `assumptions`·`designDebt`가 있으면 그 가정과 임의로 정할 것을 따른다.
    소유권과 **교집합**이다. 범위가 소유권을 넓히지 못하고 그 반대도 아니다.
 3. 기획·디자인 산출물 — 무엇을 만드는가의 근거. 화면의 **조건별 내용**은
    `_workspace/01_plan/ux-brief.md`(또는 `ux-brief/`) 「화면별 정보 위계」 표가 정본이다 —
@@ -132,7 +132,7 @@ maxTurns: 45
 ## 비신뢰 콘텐츠 격리 (안전 하한)
 
 외부 콘텐츠가 실행에 들어오는 구현(크롤링·RAG·browser 조작·고객 문의·외부 파일)이면
-`web-harness-read skills/web-orchestrator/references/untrusted-content-quarantine.md`를 읽고 따른다.
+`_workspace/.contracts/skills/web-orchestrator/references/untrusted-content-quarantine.md`를 읽고 따른다.
 이 의무는 2026-08-26에 제거된 도메인 특화 빌더 5종에서 이관됐다 — 도메인이 아니라 **구현의
 성질**에 걸리는 계약이므로 특정 빌더가 아니라 구현자가 진다.
 

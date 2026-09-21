@@ -1,0 +1,139 @@
+{
+  "$schema": "../../schemas/web-core/adapter.schema.json",
+  "schemaVersion": 1,
+  "id": "react-vite-spa",
+  "version": "1.2.1",
+  "supportLevel": "compatible",
+  "trust": {
+    "tier": "builtin",
+    "source": "web-harness-control-plane",
+    "commandPolicy": "argv-only",
+    "allowedExecutables": [
+      "pnpm"
+    ],
+    "environmentAllowlist": [
+      "CI",
+      "NODE_ENV"
+    ]
+  },
+  "project": {
+    "framework": "react",
+    "variant": "vite-spa",
+    "packageManager": "pnpm",
+    "router": "react-router",
+    "rendering": [
+      "csr"
+    ]
+  },
+  "runtime": {
+    "primary": "browser",
+    "supported": [
+      "browser",
+      "container",
+      "node-build"
+    ]
+  },
+  "detection": {
+    "allPackages": [
+      "react",
+      "vite"
+    ],
+    "anyPackages": [],
+    "allPaths": [],
+    "anyPaths": [
+      "vite.config.js",
+      "vite.config.mjs",
+      "vite.config.ts",
+      "src/main.jsx",
+      "src/main.tsx"
+    ],
+    "forbiddenPackages": [
+      "next"
+    ],
+    "forbiddenPaths": [
+      "api"
+    ]
+  },
+  "profileDefaults": {
+    "productKind": "spa",
+    "backendShape": "external-api-or-none",
+    "deploymentProvider": "generic",
+    "deploymentTarget": "static-cdn",
+    "riskLevel": "public",
+    "capabilities": [
+      "client-routing",
+      "csr",
+      "static-build"
+    ]
+  },
+  "provides": [
+    "client-routing",
+    "csr",
+    "external-ingestion",
+    "scheduled-static-ingestion",
+    "static-build"
+  ],
+  "conflicts": [
+    "rsc",
+    "server-actions",
+    "ssr"
+  ],
+  "deploymentProviders": [
+    {
+      "id": "generic",
+      "deploymentTargets": [
+        "container-static",
+        "static-cdn"
+      ]
+    },
+    {
+      "id": "vercel",
+      "deploymentTargets": [
+        "static-cdn"
+      ]
+    }
+  ],
+  "deploymentTargets": [
+    {
+      "id": "static-cdn",
+      "runtime": "browser",
+      "requires": [
+        "static-build"
+      ],
+      "conflicts": [
+        "server-actions",
+        "ssr"
+      ]
+    },
+    {
+      "id": "container-static",
+      "runtime": "container",
+      "requires": [
+        "static-build"
+      ],
+      "conflicts": [
+        "server-actions"
+      ]
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "vite-dist",
+      "path": "dist",
+      "kind": "static-directory",
+      "deploymentTargets": [
+        "container-static",
+        "static-cdn"
+      ]
+    }
+  ],
+  "initialCapabilities": [
+    "requirements.locked"
+  ],
+  "targetCapabilities": [
+    "release.candidate"
+  ],
+  "shapes": [
+    "web-app"
+  ]
+}

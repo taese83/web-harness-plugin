@@ -21,12 +21,12 @@ maxTurns: 20
 
 ## 디자인 원칙 입력 (필수)
 
-토큰 값을 정하기 전에 다음 원칙 문서를 읽고 그 수치·규칙을 기본값으로 사용한다 (`web-harness-read skills/web-orchestrator/references/design-principles.md`의 소비 규칙 준수 — 사용자 브랜드 제약이 이기되, 접근성 하한은 협상 불가):
+토큰 값을 정하기 전에 다음 원칙 문서를 읽고 그 수치·규칙을 기본값으로 사용한다 (`_workspace/.contracts/skills/web-orchestrator/references/design-principles.md`의 소비 규칙 준수 — 사용자 브랜드 제약이 이기되, 접근성 하한은 협상 불가):
 
-- `web-harness-read skills/web-orchestrator/references/design-principles-research.md` — 발산 축·recency·**상투 회피 목록**(AI 수렴 룩 기본값 금지)·단일 시안 수렴과 기각 기록
-- `web-harness-read skills/web-orchestrator/references/design-principles-color.md` — 팔레트 4계층, 60-30-10, OKLCH 스케일, semantic 4토큰, 대비, 다크 모드
-- `web-harness-read skills/web-orchestrator/references/design-principles-typography.md` — 타입 스케일, line-height, letter-spacing, 굵기 4단계, 텍스트 색 3단계
-- `web-harness-read skills/web-orchestrator/references/design-principles-spacing-layout.md` — 8pt token scale, 터치 타깃, 패딩 비율, 밀도 수치
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-research.md` — 발산 축·recency·**상투 회피 목록**(AI 수렴 룩 기본값 금지)·단일 시안 수렴과 기각 기록
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-color.md` — 팔레트 4계층, 60-30-10, OKLCH 스케일, semantic 4토큰, 대비, 다크 모드
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-typography.md` — 타입 스케일, line-height, letter-spacing, 굵기 4단계, 텍스트 색 3단계
+- `_workspace/.contracts/skills/web-orchestrator/references/design-principles-spacing-layout.md` — 8pt token scale, 터치 타깃, 패딩 비율, 밀도 수치
 
 원칙과 다른 토큰을 만들 때는 design-system 해당 절에 근거 한 줄을 남긴다 ("원칙 X 대신 Y: 이유").
 
@@ -88,10 +88,10 @@ export const theme = createTheme({
 출력 파일:
 - `_workspace/02_design/design-system.md`
 
-`web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘으면 `_workspace/02_design/design-system/`으로 분할하고 토큰 / 컴포넌트 인벤토리 / 접근성 절과 `INDEX.md`를 만든다.
+`_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 크기 예산과 분할 규칙을 따른다. 20KB를 넘으면 `_workspace/02_design/design-system/`으로 분할하고 토큰 / 컴포넌트 인벤토리 / 접근성 절과 `INDEX.md`를 만든다.
 
 `src/app/theme.ts`는 직접 생성하지 않는다. 테마 코드가 80줄을 넘으면 문서 본문이 아니라 `theme.code.ts`(tailwind-shadcn 레인은 `theme.code.css`; 분할 시 `design-system/` 하위)로 분리하고 본문에는 경로와 용도 한 줄만 남긴다. `developer`가 Phase 3에서 이 파일을 `src/app/theme.ts`(mui) 또는 `src/app/style.css`(tailwind-shadcn)로 생성한다.
 
 ## 입력 읽기
 
-`_workspace/01_plan/ux-brief/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(디자인 방향)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`ux-brief.md`)을 읽는다. 규칙은 `web-harness-read skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
+`_workspace/01_plan/ux-brief/` 디렉토리가 있으면 그 안의 `INDEX.md`를 먼저 읽고, `주 소비자`와 `담당 범위`로 이 에이전트에 필요한 절(디자인 방향)과 `담당 범위: 전체`인 공통 절만 읽는다. 디렉토리가 없으면 기존 단일 파일(`ux-brief.md`)을 읽는다. 규칙은 `_workspace/.contracts/skills/web-orchestrator/references/artifact-sharding-contract.md`의 소비자 읽기 프로토콜이다. <!-- marker:consumer-read-protocol -->
