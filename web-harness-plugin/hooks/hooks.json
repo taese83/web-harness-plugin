@@ -65,6 +65,14 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/release-write-lease.mjs"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/record-verdict.mjs"
+          }
+        ]
       }
     ]
   }
