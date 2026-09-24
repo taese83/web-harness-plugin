@@ -15,7 +15,7 @@ The local Console (port 4310) and isolated preview (4311) are started against th
 
 ## Entry-point commands
 
-These are the commands you invoke directly. Everything else this plugin ships is an **internal building block** that `/web-harness:wh` calls for you (orchestrators, Phase steps, companion setups, AI submodes) — they appear in the `/web-harness:` list but calling one directly skips the lane banner and its gates.
+These are the commands you invoke directly, and the only ones in the `/web-harness:` menu. Everything else this plugin ships is an **internal building block** (orchestrators, Phase steps, companion setups, AI submodes) that is hidden from the menu and read by `/web-harness:wh` for you, so the lane banner and its gates always apply.
 
 | Command | Use it to |
 |---|---|
@@ -24,9 +24,10 @@ These are the commands you invoke directly. Everything else this plugin ships is
 | `/web-harness:pr-drafter` | Draft a PR description from the current branch diff. |
 | `/web-harness:web-console` | Open the approval-gated local Console for the current project. |
 | `/web-harness:project-init` | Scaffold an empty project skeleton only (no planning/QA gates). |
+| `/web-harness:version-bump` | Recommend a semantic version bump from the git history and changes. |
 
 First app, cost expectations, and the brownfield path: see the [quickstart](https://github.com/taese83/web-harness/blob/main/docs/quickstart.md).
 
-- Version: 0.45.0
+- Version: 0.46.0
 - 22 skills · 45 agents · 5 safety hooks
 - Always-on context cost ≈10k tokens/session (plus a few SessionStart re-entry lines only in `_workspace/` harness-managed projects) — disable when idle: `/plugin disable web-harness@web-harness-marketplace`

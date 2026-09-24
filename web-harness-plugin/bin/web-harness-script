@@ -2,13 +2,30 @@
 set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAME="${1:-}"
+usage() {
+  cat <<'USAGE'
+usage: web-harness-script <name> [args...]
+배포 문서가 부르는 스크립트 — 인자는 그 문서의 명령 줄을 따른다:
+  init-workspace prepare-quality-attestation preview-server read-skill-section
+  report-execution-telemetry resume-manifest reuse-inventory run-git-inspection
+  run-package-operation run-quality-gates spec ticket/cli validate-artifact-sharding
+  validate-dependency-pins validate-design-preview validate-design-tokens
+  validate-development-readiness validate-environment-closure validate-handoff-readiness
+  validate-layer-boundaries validate-mutation-sample validate-output-language validate-plan-delta
+  validate-release-gate validate-requirements-notation validate-spawn-plan
+  validate-spec-conformance validate-wiring-coverage verify-spawn-completion
+  web-core/compile-execution-plan web-core/resolve-profile web-core/validate-next-contracts
+USAGE
+}
 case "$NAME" in
-  ''|*..*|*[!a-z0-9/-]*) echo "web-harness-script: invalid script name: $NAME" >&2; exit 2;;
+  -h|--help|help) usage; exit 0;;
+  '') usage >&2; exit 2;;
+  *..*|*[!a-z0-9/-]*) echo "web-harness-script: invalid script name: $NAME" >&2; exit 2;;
 esac
 shift
 SCRIPT="$PLUGIN_ROOT/.claude/scripts/$NAME.mjs"
 if [ ! -f "$SCRIPT" ]; then
-  echo "web-harness-script: not part of the plugin runtime: $NAME" >&2
+  echo "web-harness-script: not part of the plugin runtime: $NAME (이름 목록: web-harness-script --help)" >&2
   exit 2
 fi
 exec node "$SCRIPT" "$@"
