@@ -1,6 +1,7 @@
 # Phase 3 — 개발 (순서 있음)
 
 `web-orchestrator`의 Phase 3 본문이다. **Phase 2 체크포인트를 통과한 시점에 읽는다**(선행 로드 금지).
+재진입이면 `api-schema.md`(분할이면 `api-schema/`)·`solution-design.md`·`spec.json` 중 빠진 첫 단계(⓪·①·②)부터 밟는다(`solution-design-contract.md` §0-3).
 
 `_workspace/02_design/preview/`가 존재하면 첫 source edit 전에 `web-harness-script validate-design-preview --project {root} --json`을 실행한다. 상태가 `APPROVED`가 아니면 `BLOCKED`이며, `STALE`이면 바뀐 스펙에서 프리뷰를 재생성·재확인·재승인한다. **`spec.json`의 `designPreview.policy`가 `skip`이면 `SKIPPED`로 통과한다** — 프로젝트가 프리뷰를 만들지 않기로 선언한 경우다. 다만 `skip`인데 프리뷰 디렉터리가 남아 있으면 `OPT_OUT_CONFLICT`로 막는다(선언과 실물이 어긋난 것을 조용히 넘기지 않는다). 선언이 없으면 종전대로 `APPROVED`를 요구한다. production builder에는 승인된 source digest가 묶은 design-system/layout-spec/component-spec/feature-plan만 전달하고 preview HTML/CSS/JS는 구현 입력으로 전달하지 않는다.
 
@@ -139,7 +140,7 @@ web-harness-script validate-handoff-readiness --project {root} --design-debt
 | `clear` | 조건이 전부 시각 근거를 갖는다 | 그대로 진행 |
 | `acknowledged` | 미결이 **전부 인수 기록으로 덮였다**(`ux-brief` 인용이 결정 로그와 대조됨) | 그대로 진행. `clear`와 섞어 읽지 않는다 — 근거가 아니라 **결정**이 있는 상태다 |
 | `no-plan` | 기획 문서를 못 찾았다 | **"청구할 것이 없다"가 아니다.** 기획·디자인이 둘 다 없으면 부채가 최대다 — `PLAN_SOURCE`를 확인하고, `absent`가 의식적 선택이면 그 사실과 함께 아래 ③을 받는다 |
-| `denominator-broken` | 조건 분모를 못 읽었다 | ⓐ `ux-brief` 표를 `형:이름` 형식으로 고친 뒤 재실행(`ux-researcher` 재스폰 또는 사용자 편집) 또는 ⓑ **범위 없는 인수임을 명시**하고 ③으로 간다. 무엇이 미결인지 셀 수 없는 상태의 인수는 범위가 없다 |
+| `denominator-broken` | 조건 분모를 못 읽었다 | ⓐ `ux-brief` 표를 `형:이름` 형식으로 고친 뒤 재실행(`product-planner` 재스폰·사용자 편집) 또는 ⓑ **범위 없는 인수임을 명시**하고 ③으로 간다. 무엇이 미결인지 셀 수 없는 상태의 인수는 범위가 없다 |
 | `debt` | 미결이 있다 | 아래 넷 중 하나를 받는다 |
 
 `debt`이면 **목록을 그대로 보여준다.** 출력은 두 부류를 나눠 적는다 — `결정이 보류된 조건`
@@ -218,7 +219,7 @@ web-harness-script validate-handoff-readiness --project {root} --design-debt
    - `SERVER_DB_MODE`이면 `_workspace/.contracts/skills/server-db-migration/SKILL.md`를 따라 `migrations/` 디렉토리, idempotent SQL 규칙, direct/pooled DSN 분리, 러너 script를 준비한다. 실제 migration 실행은 사용자 승인 후
    - `developer` — main/App/router/theme/home shell
 2. 지원 companion과 API 계약 확정:
-   - `API_CONTRACT_MODE`이면 `_workspace/.contracts/skills/api-contract-typegen/SKILL.md`를 따라 client/server가 공유할 schema(Zod 또는 OpenAPI codegen)를 확정한다. Mock handler와 entity/feature builder가 이 schema를 참조한다
+   - client/server 계약이면(`shape-routing-contract.md` §2-1) `_workspace/.contracts/skills/api-contract-typegen/SKILL.md`를 따라 client/server가 공유할 schema(Zod 또는 OpenAPI codegen)를 확정한다. Mock handler와 entity/feature builder가 이 schema를 참조한다
    - `OAUTH_SERVER_MODE`이면 `_workspace/.contracts/skills/auth-setup/SKILL.md`를 따라 `_lib/oauth.ts`, `_lib/session.ts`, `api/auth/*/{start,callback}.ts`, `authGuard`를 구현한다. 이후 protected handler가 이 guard를 사용한다
    - `MOCK_SERVICE_MODE`이고 `developer`의 기본 셋업 이상이 필요하면 `_workspace/.contracts/skills/mock-service-setup/SKILL.md`를 따라 handler·fixture·시나리오 스위치·bypass mode를 조직한다
 3. **구현 — `developer`를 모듈 경계마다 스폰한다.** 스폰 계획(분해·발췌 주입·fit-gate·계획 잠금)은 `spawn-decomposition-contract.md`를 따른다.

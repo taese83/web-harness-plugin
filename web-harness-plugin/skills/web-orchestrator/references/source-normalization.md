@@ -26,15 +26,15 @@ Use `_workspace/00_source/source-change-proposals.md` for suggested original-sou
   하류가 살아 있는 요구로 읽는다. `Won't`로 옮기고 Source Trace에 표시 위치를 남긴다 — 지우면
   "작성자가 제외했다"와 "원문에 없었다"를 구별할 수 없다.
 - Convert design screens to routes and page responsibilities in `layout-spec.md`.
-  `SURFACE_MODEL: overlay`(`project-brief.md` 선언)면 route가 아니라 **서피스 맵**으로 변환한다
+  `SURFACE_MODEL: overlay`(`feature-plan.md` Page Groups 선언)면 route가 아니라 **서피스 맵**으로 변환한다
   — 어휘와 커버 범위는 `_workspace/.contracts/agents/layout-designer.md`「서피스 모델」이 정본이다.
 - Convert reusable UI patterns to `component-spec.md`.
 - Convert visual tokens to `design-system.md`; if tokens are missing, mark defaults as `ASSUMPTION`.
 - 여러 노드의 변수를 `design-system.md`로 합칠 때 **컬렉션을 통합하지 않는다.** 컬렉션별로 구분해
   적고 각 토큰에 출처 노드를 남긴다. 어휘를 하나로 고르는 것은 정규화가 아니라 사용자 결정이다.
-- Convert API tables/OpenAPI/sample JSON to `api-schema.md`; if no API exists, use MSW-only mock endpoints and mark them as `ASSUMPTION`.
+- Convert API tables/OpenAPI/sample JSON to `api-schema.md`; if no API exists, use MSW-only mock endpoints and mark them as `ASSUMPTION`. Put the `API_CONTRACT` status line under the title (`_workspace/.contracts/agents/api-schema-designer.md`): `confirmed (<source file>)` for OpenAPI/API tables, `provisional` for MSW-only, `none` only when the source says there is no server API.
 - Convert acceptance criteria to feature completion checks in `feature-plan.md`.
-- Normalize target screen, primary user task, current pain, observable success, annotation intent, critical states, data strategy, and effort trade-off into `planning-context.md`.
+- Normalize target screen, primary user task, current pain, observable success, annotation intent, critical states, data strategy, and effort trade-off into `requirements.md` (Product Frame, Data Review Strategy, Effort Trade-off) and `ux-brief.md` (UX Check).
 - Apply `../../web-plan/references/planning-facilitation-contract.md` and `planning-readiness-contract.md`; missing product context or conflicting annotations remain `NEEDS_DECISION | BLOCKER`.
 
 ## Gap Categories

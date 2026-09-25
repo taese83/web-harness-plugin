@@ -65,7 +65,7 @@ receipt 재발급도 따라오지 않는다.
   때문이다 — 두 경로 모두 Phase 2 이전이라 디자인 산출물이 없고, 보고는 모든 조건을 근거
   없음으로 센다. `supplied`의 귀속 기록 부재는 위 「디자인 근거의 귀속」 항목이 이미 사람
   확인으로 덮고, 무문서 경로는 `docs/protected-core.md` §4에 등록돼 있다.
-- **`SURFACE_MODEL: overlay`를 선언했으면 Phase 3 미정합을 함께 알린다**(`project-brief.md`에
+- **`SURFACE_MODEL: overlay`를 선언했으면 Phase 3 미정합을 함께 알린다**(`feature-plan.md` Page Groups 절에
   그 행이 있을 때만). 화면 단위가 route가 아닌 형태는 Phase 2까지만 성립한다 —
   `buildable-app-contract.md`는 여전히 route table과 concrete page를, `integration-verifier`는
   명시적 404 route를 **무조건** 요구한다. 게이트를 끄지 않았으므로 overlay 프로젝트는 개발
@@ -112,7 +112,6 @@ node .claude/scripts/validate-handoff-readiness.mjs --project {root} --motion-ro
 
 - 화면·route 목록과 핵심 정보 구조
 - shared/feature component 목록과 기존 디자인 재사용 범위
-- API endpoint, Mock/OpenAPI adoption, 상태 및 오류 계약
 - 색상·타이포그래피·responsive/layout-stability 기준
 - `DESIGN_PROTOTYPE_MODE`와 prototype/screenshot이 있으면 시각 자료
 - Design Preview Loop 결과: 프리뷰 URL(또는 스크린샷), FEAT/TC 배지·side panel 추적성, 시안 확정 내역(커밋 방향·기각 방향·근거), `validate-design-preview.mjs`의 `APPROVED` 상태, `design-review.md`의 source/preview/traceability 승인 해시, 미결 `NEEDS_DECISION` (`design-approval-contract.md`) — 프리뷰는 실렌더링 근사치라는 한계 문구 포함
@@ -206,7 +205,7 @@ HOLE은 2건이며, 둘 다 `absent` 선언이 곧 원인이다 — 독립된 �
 - `moduleBoundaries`와 `nonGoals`
 - `openDecisions` 중 `assumed`로 닫힌 항목 — 사용자가 보류해 추천안으로 확정된 것
 
-수정 요청이 있으면 `system-architect`를 다시 실행하고 `spec.mjs`로 재확정한 뒤 이 절을 반복한다.
+수정 요청이 있으면 `system-architect`를 다시 실행하고(API면 ⓪부터, `solution-design-contract.md` §0-3) `spec.mjs`로 재확정한 뒤 이 절을 반복한다.
 **확인 전에는 Phase 3 source edit를 시작하지 않는다.**
 
 ## change 레인 → 개발
