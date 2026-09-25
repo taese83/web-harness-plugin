@@ -13,8 +13,8 @@ usage: web-harness-script <name> [args...]
   validate-development-readiness validate-environment-closure validate-handoff-readiness
   validate-layer-boundaries validate-mutation-sample validate-output-language validate-plan-delta
   validate-release-gate validate-requirements-notation validate-spawn-plan
-  validate-spec-conformance validate-wiring-coverage verify-spawn-completion
-  web-core/compile-execution-plan web-core/resolve-profile web-core/validate-next-contracts
+  validate-spec-conformance verify-spawn-completion web-core/compile-execution-plan
+  web-core/resolve-profile web-core/validate-next-contracts
 USAGE
 }
 case "$NAME" in
