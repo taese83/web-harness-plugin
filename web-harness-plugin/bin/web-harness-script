@@ -7,14 +7,14 @@ usage() {
 usage: web-harness-script <name> [args...]
 배포 문서가 부르는 스크립트 — 인자는 그 문서의 명령 줄을 따른다:
   init-workspace prepare-quality-attestation preview-server read-skill-section
-  report-execution-telemetry resume-manifest reuse-inventory run-git-inspection
+  report-execution-telemetry report-test-qa resume-manifest reuse-inventory run-git-inspection
   run-package-operation run-quality-gates spec ticket/cli validate-artifact-sharding
   validate-dependency-pins validate-design-preview validate-design-tokens
   validate-development-readiness validate-environment-closure validate-handoff-readiness
-  validate-layer-boundaries validate-mutation-sample validate-output-language validate-plan-delta
-  validate-release-gate validate-requirements-notation validate-spawn-plan
-  validate-spec-conformance verify-spawn-completion web-core/compile-execution-plan
-  web-core/resolve-profile web-core/validate-next-contracts
+  validate-layer-boundaries validate-output-language validate-plan-delta validate-release-gate
+  validate-requirements-notation validate-spawn-plan validate-spec-conformance
+  verify-spawn-completion web-core/compile-execution-plan web-core/resolve-profile
+  web-core/validate-next-contracts
 USAGE
 }
 case "$NAME" in
