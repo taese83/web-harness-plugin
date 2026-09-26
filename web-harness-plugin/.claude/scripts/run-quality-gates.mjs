@@ -33,7 +33,7 @@ import {
 import {
   analyzePackageScript,
   cleanProfileBuildArtifacts,
-  findUnsafePackageConfig,
+  inspectPackageConfig,
   hasMeaningfulProfileScript,
   readDependencyBinding,
   resolvePinnedPackageManager,
@@ -54,7 +54,7 @@ import {
   validateWorkflowSecurityProjects,
 } from './workflow-security-lib.mjs'
 import {collectVisualEvidence} from './visual-evidence-lib.mjs'
-import {parseCoverageSummary, parseTestSummary} from './quality-output-summary-lib.mjs'
+import {parseCoverageSummary, parseFailureLocations, parseTestSummary} from './quality-output-summary-lib.mjs'
 const BASE_CHECKS = new Map([
   ['build', {scripts: ['build'], timeoutMs: 600_000}],
   ['typecheck', {scripts: ['typecheck'], timeoutMs: 600_000}],
@@ -82,16 +82,18 @@ let projectValue = process.cwd()
 let selectedCheck = null
 let allRequested = false
 let hostExecutionApproved = false
+let failureSummaryRequested = false
 const seenOptions = new Set()
 for (let index = 0; index < args.length; index += 1) {
   const option = args[index]
-  if (!['--project', '--check', '--all', '--allow-host-execution'].includes(option) || seenOptions.has(option)) {
+  if (!['--project', '--check', '--all', '--allow-host-execution', '--failure-summary'].includes(option) || seenOptions.has(option)) {
     process.stderr.write(`Unknown or duplicate quality runner option: ${option}\n`)
     process.exit(2)
   }
   seenOptions.add(option)
   if (option === '--all') allRequested = true
   else if (option === '--allow-host-execution') hostExecutionApproved = true
+  else if (option === '--failure-summary') failureSummaryRequested = true
   else {
     const value = args[index + 1]
     if (!value || value.startsWith('--')) {
@@ -105,6 +107,11 @@ for (let index = 0; index < args.length; index += 1) {
 }
 if (allRequested && selectedCheck) {
   process.stderr.write('--all and --check are mutually exclusive.\n')
+  process.exit(2)
+}
+// 실패 위치 목록은 수정 스폰의 입력이다 — 단일 check에서만 쓴다(--all 증거 실행에는 싣지 않는다).
+if (failureSummaryRequested && allRequested) {
+  process.stderr.write('--failure-summary works with --check only.\n')
   process.exit(2)
 }
 const externallyIsolated = process.env.WEB_HARNESS_ISOLATED_EXECUTION === '1'
@@ -228,6 +235,9 @@ commandEnvironment.USERPROFILE = sandboxHome
 commandEnvironment.XDG_CACHE_HOME = join(sandboxHome, '.cache')
 commandEnvironment.XDG_CONFIG_HOME = join(sandboxHome, '.config')
 commandEnvironment.npm_config_userconfig = join(sandboxHome, '.npmrc')
+// audit(러너 안의 유일한 pnpm 호출)의 판정·TLS 신뢰를 프로젝트 .npmrc가 바꾸지 못하게 env로 고정한다(env > 프로젝트 .npmrc).
+commandEnvironment.npm_config_strict_ssl = 'true'
+commandEnvironment.npm_config_audit_level = 'low'
 commandEnvironment.npm_config_globalconfig = join(sandboxHome, '.global-npmrc')
 commandEnvironment.npm_config_registry = 'https://registry.npmjs.org'
 commandEnvironment.TMP = join(sandboxHome, 'tmp')
@@ -247,8 +257,18 @@ try {
   process.stderr.write(`Cannot read package.json: ${error instanceof Error ? error.message : String(error)}\n`)
   process.exit(2)
 }
-if (findUnsafePackageConfig(projectRoot)) {
-  process.stderr.write('Project/workspace npmrc or pnpm hook is outside the public-registry quality runner scope.\n')
+// 레지스트리·인증·설치 방식 키만 담은 .npmrc는 허용한다(사내 registry 브라운필드). 실행을 바꾸는 키·pnpm 훅은
+// 거부하고 키 이름만 알린다 — 값은 출력하지 않는다.
+const packageConfig = inspectPackageConfig(projectRoot)
+// package.json의 pnpm.auditConfig(ignoreCves·ignoreGhsas)는 audit 판정에서 권고를 지운다 — 러너가 받는 audit 문턱을 프로젝트가 바꾸지 못하게 막는다.
+if (packageJson.pnpm && typeof packageJson.pnpm === 'object' && 'auditConfig' in packageJson.pnpm) {
+  process.stderr.write('package.json pnpm.auditConfig changes the audit verdict and is outside the quality runner scope.\n')
+  process.exit(2)
+}
+if (packageConfig.blocked) {
+  const offending = packageConfig.files.filter(file => file.disallowedKeys.length > 0)
+    .map(file => `${relative(projectRoot, file.path) || file.path}: ${file.disallowedKeys.join(', ')}`)
+  process.stderr.write(`Project .npmrc, pnpm hook, or pnpm-workspace.yaml sets keys outside the quality runner allowlist (npmrc: registry, scoped registry, registry auth, install and transport options; workspace: packages, catalogs, build and resolution keys): ${offending.join('; ')}\n`)
   process.exit(2)
 }
 const dependencyBindingAtStart = readDependencyBinding(projectRoot, packageJson)
@@ -709,6 +729,9 @@ const executeCheck = (id, definition) => {
   }
   const stdout = result?.stdout ?? ''
   const stderr = result?.stderr ?? result?.error?.message ?? ''
+  if (failureSummaryRequested && status !== 'PASS') {
+    failureLocations.push({check: receiptId, status, failures: parseFailureLocations(`${stdout}\n${stderr}`, {projectRoot})})
+  }
   return {
     schemaVersion: 2,
     runner: 'web-harness-quality-gate',
@@ -724,6 +747,8 @@ const executeCheck = (id, definition) => {
       commandContractSha256: packageScriptAnalysis?.ok ? sha256(JSON.stringify(packageScriptAnalysis.commands)) : null,
     } : null,
     cwd: '.',
+    // 프로젝트 패키지 설정의 키 분류만 남긴다 — 값·해시·원래 키 이름(사내 호스트)은 싣지 않는다.
+    packageConfig: packageConfig.files.map(file => ({kind: file.kind, classes: file.classes})),
     startedAt,
     durationMs: Math.round(durationMs),
     timeoutMs: definition.timeoutMs,
@@ -825,6 +850,7 @@ if (runAll) {
   if (ingestionIndex >= 0) selectedEntries.push(...selectedEntries.splice(ingestionIndex, 1))
 }
 const qualityCohortId = randomUUID()
+const failureLocations = []
 const receipts = selectedEntries.map(([id, definition]) => executeCheck(id, definition))
 const dependencyBindingAtEnd = readDependencyBinding(projectRoot, packageJson)
 if (JSON.stringify(dependencyBindingAtEnd) !== JSON.stringify(dependencyBindingAtStart)) {
@@ -852,6 +878,13 @@ for (const receipt of receipts) {
   }
   process.stdout.write(`${receipt.id}: ${receipt.status} (${receipt.command})\n`)
   if (receipt.blockedReason) process.stderr.write(`${receipt.id}: ${receipt.blockedReason}\n`)
+}
+
+// 영수증이 아니다 — evidence/ 밖(_workspace/04_qa/는 소스 지문 제외)에 덮어쓴다. 통과면 지운다.
+if (failureSummaryRequested) {
+  const summaryPath = join(projectRoot, '_workspace/04_qa/failure-summary.json')
+  if (failureLocations.length > 0) writeFileSync(summaryPath, `${JSON.stringify({generatedAt: new Date().toISOString(), checks: failureLocations}, null, 2)}\n`)
+  else rmSync(summaryPath, {force: true})
 }
 
 rmSync(sandboxHome, {recursive: true, force: true})
