@@ -34,6 +34,9 @@ import {analyzeEnvironmentClosure, REQUIRED_SCRIPTS, WEB_APP_SCRIPTS} from './va
 import {checkPlanAgainstSpec, readSpecAt, withinScope} from './validate-spawn-plan.mjs'
 import {inspectPlanSpecBinding} from './resume-manifest.mjs'
 import {TICKET_CLOSE_ASSETS, installTicketCloseAssets, planTicketCloseInstall} from './ticket/cli.mjs'
+import {answerHelp} from './cli-help-lib.mjs'
+
+answerHelp(import.meta.url)
 
 const OWNERSHIP_HOOK = fileURLToPath(new URL('./enforce-agent-ownership.mjs', import.meta.url))
 
@@ -306,7 +309,7 @@ export function checkTicketAssets(root, {install = false} = {}) {
 export const TEAM_SHARING = {
   attributes: ['_workspace/03_dev/work-item-events.jsonl merge=union'],
   // 개발자 로컬 기록 — 커밋하면 PR마다 충돌하고 남의 기록이 픽업·범위를 막는다. 초안은 트래커에 만든 뒤에는 티켓이 정본이다.
-  ignores: ['_workspace/03_dev/change-scope.md', '_workspace/04_qa/failure-summary.json', '_workspace/03_dev/ticket-assessments/', '_workspace/03_dev/work-links/', '_workspace/03_dev/reuse-inventory.json',
+  ignores: ['_workspace/03_dev/change-scope.md', '_workspace/04_qa/failure-summary.json', '_workspace/04_qa/context-telemetry.jsonl', '_workspace/03_dev/ticket-assessments/', '_workspace/03_dev/work-links/', '_workspace/03_dev/reuse-inventory.json',
     '_workspace/03_dev/change-journal/', '_workspace/03_dev/ticket-drafts/', '_workspace/03_dev/flow-log.jsonl'],
 }
 const readLines = path => (existsSync(path) ? readFileSync(path, 'utf8').split(/\r?\n/).map(line => line.trim()) : [])

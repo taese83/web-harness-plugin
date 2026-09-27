@@ -465,6 +465,8 @@ const withoutDirectoryOption = (args, option, context) => {
 }
 
 const qualityRunnerContract = (args, context) => {
+  // 사용법은 부작용 없이 답한다 — 서브에이전트가 소스를 읽어 옵션을 알아내지 않게.
+  if (args.length === 1 && ['--help', '-h'].includes(args[0])) return true
   let commandArgs = withoutDirectoryOption(args, '--project', context)
   const approvalIndexes = commandArgs.flatMap((value, index) => value === '--allow-host-execution' ? [index] : [])
   if (approvalIndexes.length > 1) return false
@@ -763,6 +765,15 @@ const validationScriptContract = (script, args, context) => {
     // 저장소 자신을 훑는 읽기 전용 감사 — 인자는 --json뿐이다.
     return args.length === 0 || (args.length === 1 && args[0] === '--json')
   }
+  // 읽기 전용 ID 조회 — `--project <dir> --id <ID,...> [--context <0-20>]` 또는 단독 --help.
+  if (script === '.claude/scripts/plan-lookup.mjs') {
+    if (args.length === 1 && ['--help', '-h'].includes(args[0])) return true
+    const rest = withoutDirectoryOption(args, '--project', context)
+    if (rest.length !== args.length - 2) return false
+    const idIndex = rest.indexOf('--id')
+    if (idIndex !== 0 || !/^[A-Z][A-Z0-9_]*(?:-[A-Z0-9]+)+(?:,[A-Z][A-Z0-9_]*(?:-[A-Z0-9]+)+)*$/.test(rest[1] ?? '')) return false
+    return rest.length === 2 || (rest.length === 4 && rest[2] === '--context' && /^(?:[0-9]|1[0-9]|20)$/.test(rest[3]))
+  }
   if (script === '.claude/scripts/report-execution-telemetry.mjs') {
     const commandArgs = withoutDirectoryOption(args, '--project', context)
     return args.includes('--project') && commandArgs.length === 0
@@ -966,3 +977,8 @@ export const evaluateGlobalBashPolicy = (input, options = {}) => {
     return deny('DENY_POLICY_ERROR', `Policy evaluation failed closed: ${error instanceof Error ? error.message : String(error)}`)
   }
 }
+
+// 사람의 승인을 대신하는 flag — 프로젝트 코드를 이 머신에서 실행하거나 보안 finding을 인수한다. 이 flag가 붙은
+// Bash는 에이전트 종류와 무관하게 사용자 확인을 거친다(`enforce-human-approval.mjs`).
+export const HUMAN_APPROVAL_FLAGS = ['--allow-host-execution', '--accept-workflow-findings']
+export const humanApprovalFlagsIn = command => HUMAN_APPROVAL_FLAGS.filter(flag => String(command ?? '').includes(flag))
