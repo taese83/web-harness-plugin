@@ -3,6 +3,7 @@
 import {spawnSync} from 'node:child_process'
 import {resolveProfileCommands} from './resolve-commands.mjs'
 import {GRANT_RELATIVE, evaluateHostExecutionGrant, recordHostExecutionGrant} from './host-execution-grant.mjs'
+import {ACCEPTANCE_RELATIVE, acceptanceCovers, readWorkflowSecurityAcceptance, recordWorkflowSecurityAcceptance} from './workflow-security-acceptance.mjs'
 import {randomUUID} from 'node:crypto'
 import {
   existsSync,
@@ -47,7 +48,8 @@ import {
   readLockedProjectProfile,
   validateLockedProfileProjectState,
 } from './web-core/profile-policy-lib.mjs'
-import {inspectExternalIngestion} from './web-core/ingestion-detection-lib.mjs'
+import {workspaceMembersDeclaring} from './web-core/profile-lib.mjs'
+import {EXTERNAL_INGESTION_CAPABILITY, inspectExternalIngestion} from './web-core/ingestion-detection-lib.mjs'
 import {validateVercelProjectConfig} from './web-core/vercel-config-lib.mjs'
 import {
   parseTrustedPromotionActions,
@@ -83,10 +85,11 @@ let selectedCheck = null
 let allRequested = false
 let hostExecutionApproved = false
 let failureSummaryRequested = false
+let workflowAcceptanceRequested = false
 const seenOptions = new Set()
 for (let index = 0; index < args.length; index += 1) {
   const option = args[index]
-  if (!['--project', '--check', '--all', '--allow-host-execution', '--failure-summary'].includes(option) || seenOptions.has(option)) {
+  if (!['--project', '--check', '--all', '--allow-host-execution', '--failure-summary', '--accept-workflow-findings'].includes(option) || seenOptions.has(option)) {
     process.stderr.write(`Unknown or duplicate quality runner option: ${option}\n`)
     process.exit(2)
   }
@@ -94,6 +97,7 @@ for (let index = 0; index < args.length; index += 1) {
   if (option === '--all') allRequested = true
   else if (option === '--allow-host-execution') hostExecutionApproved = true
   else if (option === '--failure-summary') failureSummaryRequested = true
+  else if (option === '--accept-workflow-findings') workflowAcceptanceRequested = true
   else {
     const value = args[index + 1]
     if (!value || value.startsWith('--')) {
@@ -112,6 +116,11 @@ if (allRequested && selectedCheck) {
 // 실패 위치 목록은 수정 스폰의 입력이다 — 단일 check에서만 쓴다(--all 증거 실행에는 싣지 않는다).
 if (failureSummaryRequested && allRequested) {
   process.stderr.write('--failure-summary works with --check only.\n')
+  process.exit(2)
+}
+// 워크플로 finding 인수는 개발 게이트 전용이다 — 배포 증거(--all)는 finding 0에서만 만들어진다.
+if (workflowAcceptanceRequested && (allRequested || selectedCheck === null)) {
+  process.stderr.write('--accept-workflow-findings works with --check only — release evidence (--all) never accepts workflow findings.\n')
   process.exit(2)
 }
 const externallyIsolated = process.env.WEB_HARNESS_ISOLATED_EXECUTION === '1'
@@ -139,7 +148,12 @@ if (!externallyIsolated && !hostExecutionApproved && !standing.granted) {
 }
 // 명시 승인으로 들어왔으면 그 사실을 남긴다 — 다음 게이트부터는 묻지 않는다.
 if (!externallyIsolated && hostExecutionApproved && !standing.granted) {
-  recordHostExecutionGrant(projectRoot)
+  try {
+    recordHostExecutionGrant(projectRoot)
+  } catch (error) {
+    process.stderr.write(`host 실행 승인을 기록하지 못했다(${error instanceof Error ? error.message : String(error)}) — 사람이 ${GRANT_RELATIVE}를 확인·삭제한다.\n`)
+    process.exit(2)
+  }
   process.stderr.write(`host 실행 승인을 기록했다 — script가 그대로인 동안은 다시 묻지 않는다(${GRANT_NOTE}).\n`)
 }
 // Toolchain pin preflight (development-gates-contract §toolchain pin): this runner spawns the
@@ -315,6 +329,18 @@ if (existsSync(projectProfilePath)) {
     }
   } catch (error) {
     process.stderr.write(`Invalid locked project profile: ${error instanceof Error ? error.message : String(error)}\n`)
+    // 워크스페이스 루트에서 잠갔는데 패키지가 멤버에만 있으면 이 잠금은 여기서 영영 충족되지 않는다 — 해법을 알린다.
+    const members = error?.code === 'PROJECT_PROFILE_PACKAGE_MISSING'
+      ? workspaceMembersDeclaring(projectRoot, error.details?.missingPackages ?? [])
+      : []
+    if (members.length > 0) {
+      process.stderr.write(
+        `The lock was resolved at the workspace root but ${error.details.missingPackages.join(', ')} are declared in workspace member(s) ` +
+        `${members.join(', ')}. It cannot be satisfied here: remove the stale _workspace/01_plan/project-profile.json ` +
+        '(the runner then uses the base checks; a locked spec lists this file as a lock input and will read as stale) ' +
+        'or run the profile resolution from the app root.\n',
+      )
+    }
     process.exit(2)
   }
 }
@@ -323,12 +349,25 @@ if (ingestionInspection.errors.length) {
   process.stderr.write(`Invalid external ingestion declaration: ${ingestionInspection.errors.join('; ')}\n`)
   process.exit(2)
 }
-if (ingestionInspection.detected && !ingestionInspection.contractsComplete) {
+// 수집 QA는 **감지가 아니라 선언**에 걸린다 — 프로필 해석과 같은 규칙(protected-core §4). 선언 = 잠긴 프로필이
+// external-ingestion을 켰거나 계약 파일이 하나라도 있다. 선언했는데 계약이 모자라면 막는다. 감지만 되고 선언이 없으면
+// 수집 QA는 돌지 않는다(I2 약화 방향, 명시) — 그 사실을 알리고 영수증에 남긴다.
+const ingestionDeclared =
+  lockedProfile?.selection.selectedCapabilities.includes(EXTERNAL_INGESTION_CAPABILITY) === true ||
+  ['_workspace/02_design/ingestion-contract.md', '_workspace/02_design/runtime-data-contract.json']
+    .some(path => existsSync(join(projectRoot, path)))
+if (ingestionDeclared && !ingestionInspection.contractsComplete) {
   process.stderr.write(
-    'External ingestion markers require both _workspace/02_design/ingestion-contract.md and ' +
+    'Declared external ingestion requires both _workspace/02_design/ingestion-contract.md and ' +
     '_workspace/02_design/runtime-data-contract.json.\n',
   )
   process.exit(2)
+}
+if (ingestionInspection.detected && !ingestionDeclared) {
+  process.stderr.write(
+    `External ingestion markers detected but not declared — ingestion QA does not run (${ingestionInspection.evidence.join(', ')}). ` +
+    'If the project ingests external data, declare the external-ingestion capability.\n',
+  )
 }
 let runtimeDataContract = null
 let generatedArtifactPaths = []
@@ -365,6 +404,11 @@ if (runtimeDataContract?.contract.refreshCapabilities.includes('scheduled') && t
 }
 const trustedPromotionActionsSha256 = sha256(JSON.stringify(trustedPromotionActions))
 const workflowPolicyErrors = []
+// 인수는 개발 게이트(--check)에서만 읽는다. 기록된 인수가 있으면 그것만 쓰고, flag는 인수가
+// **아예 없을 때만** 새로 기록한다 — 워크플로가 바뀌었거나 인수가 무효면 사람이 파일을 지워야 한다.
+const workflowAcceptance = readWorkflowSecurityAcceptance(projectRoot)
+const acceptedWorkflowFindings = []
+const pendingWorkflowAcceptance = []
 try {
   validateWorkflowSecurityProjects({
     repositoryRoot: projectRoot,
@@ -374,12 +418,31 @@ try {
     },
     pass: () => {},
     fail: message => workflowPolicyErrors.push(message),
+    acceptFinding: runAll ? null : finding => {
+      if (workflowAcceptance.state === 'valid' && acceptanceCovers(workflowAcceptance.record, finding)) {
+        acceptedWorkflowFindings.push(finding)
+        return true
+      }
+      if (workflowAcceptance.state === 'none' && workflowAcceptanceRequested) {
+        pendingWorkflowAcceptance.push(finding)
+        return true
+      }
+      return false
+    },
   })
 } catch (error) {
   workflowPolicyErrors.push(error instanceof Error ? error.message : String(error))
 }
 if (workflowPolicyErrors.length) {
   process.stderr.write(`Workflow security validation failed: ${workflowPolicyErrors.join('; ')}\n`)
+  if (!runAll && workflowAcceptance.state !== 'none') {
+    process.stderr.write(
+      `${ACCEPTANCE_RELATIVE}(${workflowAcceptance.state})가 이 finding을 덮지 않는다 — 인수 뒤 워크플로가 바뀌었거나 새 finding이다.\n` +
+        '다시 인수하려면 사람이 그 파일을 지우고 --accept-workflow-findings로 재실행한다(flag만으로는 덮어쓰지 않는다).\n',
+    )
+  } else if (!runAll && !workflowAcceptanceRequested) {
+    process.stderr.write('기존 저장소의 워크플로라 이 변경에서 고칠 수 없으면, 사용자 승인 뒤 --accept-workflow-findings로 개발 게이트에서만 인수할 수 있다(배포 증거 --all은 인수하지 않는다).\n')
+  }
   process.exit(2)
 }
 const checks = new Map([...BASE_CHECKS, ...DIAGNOSTIC_CHECKS, ...adapterChecks])
@@ -389,6 +452,20 @@ if (runtimeDataContract && !checks.has(INGESTION_RECEIPT_ID)) {
 if (!runAll && !checks.has(selectedCheck)) {
   process.stderr.write(`Unknown quality check: ${selectedCheck ?? '<missing>'}\n`)
   process.exit(2)
+}
+// 인수 기록은 실제로 돌 check가 확정된 뒤에만 남긴다.
+if (pendingWorkflowAcceptance.length) {
+  try {
+    recordWorkflowSecurityAcceptance(projectRoot, pendingWorkflowAcceptance)
+  } catch (error) {
+    process.stderr.write(`워크플로 finding 인수를 기록하지 못했다(${error instanceof Error ? error.message : String(error)}) — 사람이 ${ACCEPTANCE_RELATIVE}를 확인·삭제한다.\n`)
+    process.exit(2)
+  }
+  acceptedWorkflowFindings.push(...pendingWorkflowAcceptance)
+  process.stderr.write(`워크플로 finding ${pendingWorkflowAcceptance.length}건 인수를 기록했다 — 개발 게이트에서만 유효하고 워크플로가 바뀌면 무효다(되돌리려면 ${ACCEPTANCE_RELATIVE} 삭제).\n`)
+}
+for (const finding of acceptedWorkflowFindings) {
+  process.stderr.write(`workflow finding accepted (--check only): ${finding.workflowPath}${finding.line ? `:${finding.line}` : ''} [${finding.code}]\n`)
 }
 const normalizeVersion = source => {
   const match = String(source).match(/(\d+)(?:\.(\d+))?(?:\.(\d+))?/)
@@ -749,6 +826,10 @@ const executeCheck = (id, definition) => {
     cwd: '.',
     // 프로젝트 패키지 설정의 키 분류만 남긴다 — 값·해시·원래 키 이름(사내 호스트)은 싣지 않는다.
     packageConfig: packageConfig.files.map(file => ({kind: file.kind, classes: file.classes})),
+    // 감지됐지만 선언되지 않은 수집은 게이트가 아니라 보고다 — 사라지지 않게 영수증에 남긴다.
+    ingestionReadiness: {detected: ingestionInspection.detected, declared: ingestionDeclared, evidence: ingestionInspection.evidence},
+    // 개발 게이트에서 인수된 워크플로 finding — 이 영수증은 single run이라 배포 증거가 될 수 없다.
+    workflowSecurityAccepted: acceptedWorkflowFindings.map(({workflowPath, code, line}) => ({path: workflowPath, code, line})),
     startedAt,
     durationMs: Math.round(durationMs),
     timeoutMs: definition.timeoutMs,
