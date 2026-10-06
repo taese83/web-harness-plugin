@@ -78,7 +78,7 @@
 - `{app}/src/app/routes/RouteErrorBoundary.tsx` (template section: ROUTE_ERROR_BOUNDARY)
 - `{app}/src/shared/ui/ErrorFallback/ErrorFallback.tsx`와 `index.ts` (template section: ERROR_FALLBACK)
 - `{app}/src/pages/home/index.ts` (template section: HOME_INDEX)
-- `{app}/src/pages/not-found/ui/NotFoundPage.tsx`와 `index.ts` (template section: NOT_FOUND_PAGE)
+- `{app}/src/pages/not-found/ui/NotFoundPage.tsx` (template section: NOT_FOUND_PAGE)와 `index.ts` (template section: NOT_FOUND_INDEX)
 - `{app}/src/pages/home/ui/HomePage.tsx` (template section: HOME_PAGE)
 
 ### Shared 레이어 기본 파일
@@ -175,6 +175,7 @@ VITE_APP_TITLE={appTitle}
 ### 사용 가능한 Skills
 | Skill | 역할 |
 |---|---|
-| `/pr-drafter` | git diff → 한국어 PR 초안 자동 작성 |
+| `/pr-drafter` | git diff → 한국어 PR 초안 자동 작성 (증거·머지 위험 포함) |
+| `/retro` | 끝난 세션·PR·QA 라운드를 돌아보고 같은 지적이 반복되지 않게 작업 환경 개선안 제안 |
 | `/wh` | 기능 추가·변경·수정·검증의 단일 진입점 — `/wh change <요청>` |
 ```
