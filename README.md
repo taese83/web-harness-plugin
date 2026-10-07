@@ -29,6 +29,6 @@ These are the commands you invoke directly, and the only ones in the `/web-harne
 
 First app, cost expectations, and the brownfield path: see the [quickstart](https://github.com/taese83/web-harness/blob/main/docs/quickstart.md).
 
-- Version: 0.63.0
+- Version: 0.64.0
 - 23 skills · 41 agents · 6 safety hooks
 - Always-on context cost ≈10k tokens/session (plus a few SessionStart re-entry lines only in `_workspace/` harness-managed projects) — disable when idle: `/plugin disable web-harness@web-harness-marketplace`

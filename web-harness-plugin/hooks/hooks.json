@@ -82,6 +82,14 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/record-verdict.mjs"
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/record-subagent-telemetry.mjs"
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
