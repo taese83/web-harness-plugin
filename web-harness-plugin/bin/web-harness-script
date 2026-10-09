@@ -6,9 +6,9 @@ usage() {
   cat <<'USAGE'
 usage: web-harness-script <name> [args...]
 배포 문서가 부르는 스크립트 — 인자는 그 문서의 명령 줄을 따른다:
-  init-workspace plan-lookup prepare-quality-attestation prepare-review-packet preview-server
-  read-skill-section report-execution-telemetry report-test-qa resume-manifest reuse-inventory
-  run-git-inspection run-package-operation run-quality-gates spec ticket/cli
+  codex-cross-review init-workspace plan-lookup prepare-quality-attestation prepare-review-packet
+  preview-server read-skill-section report-execution-telemetry report-test-qa resume-manifest
+  reuse-inventory run-git-inspection run-package-operation run-quality-gates spec ticket/cli
   validate-artifact-sharding validate-dependency-pins validate-design-preview
   validate-design-tokens validate-development-readiness validate-environment-closure
   validate-handoff-readiness validate-layer-boundaries validate-output-language
