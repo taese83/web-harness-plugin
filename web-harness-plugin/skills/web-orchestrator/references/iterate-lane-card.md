@@ -1,8 +1,8 @@
 # Iterate 레인 카드 — `change`·`fix` 한 라운드의 순서·명령·양식
 
 오케스트레이터는 `change`·`fix` 라운드를 **이 카드로 시작한다.** 규칙의 정본은 각 단계에 적힌 계약이다 —
-그 계약은 **그 단계가 막히거나 카드로 판단이 서지 않을 때만** 해당 절을 연다. 계약을 미리 통째로 읽지 않는다
-(읽은 문서는 이후 모든 호출에 다시 실려 비용이 된다). 카드와 계약이 다르면 계약이 이긴다.
+그 계약은 **그 단계가 막히거나 카드로 판단이 서지 않을 때만** 해당 절을 연다. 계약을 미리 통째로 읽지 않는다.
+카드와 계약이 다르면 계약이 이긴다.
 
 ## 첫 판단 — 계약을 열기 전에
 
@@ -45,6 +45,7 @@
 ```
 
 2. 반환 뒤(write-back이면 `--verify`) 입력이 바뀌었을 때만 3행 `spec.mjs`로 ✋ 전 재확정. ✋에 `ACC-`·`TT-`. `ESCALATE_TO_FULL`이면 full.
+   `RESEARCH_NEEDED`면 ✋ 전에 `tech-advisor` 구현 리서치 1회 — 답은 ✋ 요약과 3의 구현 지시에 싣는다(파일 없음). 구현 반환에 오면 같은 developer에 이어 준다.
 3. ✋ 뒤 구현 범위 펜스(`PHASE` 없음)를 append하고 **같은 developer를 SendMessage로 이어서** 구현·수정시킨다. 반환한 스폰이 이어지지
    않거나(세션 종료·비대화 실행 포함) 응답이 없으면 `TaskStop` 뒤 새 스폰에 계획 반환·TC ID를 넘긴다. telemetry `mode: resume`.
 4. 리뷰는 라운드당 **한 스폰** — 규칙은 `qa-evidence-contract.md` Iterate evidence의 light 항목(9 ①도 그것이 채운다).
@@ -79,6 +80,7 @@ DOCS_TO_UPDATE: none (대조: …) | 문서 목록
 ACCEPTANCE: 아래 줄 — `- ACC-R<n>-<k> <문장> · <LOCAL_VERIFIABLE|DEPLOY_ONLY> — TT-R<n>-<k>`
 TEST_ITEMS: TT-R<n>-<k> 범위
 NOTE: _workspace/03_dev/notes/<티켓|R<n>>.md | none
+REFERENCE_AREAS: a11y, security, structure, data-fetching | none
 ```
 
 ## telemetry 1행
