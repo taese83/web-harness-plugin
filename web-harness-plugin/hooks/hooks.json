@@ -8,6 +8,15 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/detect-harness-project.mjs"
           }
         ]
+      },
+      {
+        "matcher": "compact|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/harness-session-mode.mjs"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -26,6 +35,15 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/enforce-verifier-bash.mjs"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}\"/.claude/scripts/enforce-script-lookup.mjs"
           }
         ]
       },
