@@ -31,7 +31,6 @@ readiness report는 HANDOFF 경로가 아니다 — HANDOFF.md는 여전히 gate
 - 일반 7개 QA 리포트(`qa-code.md`, `qa-ux.md`, `qa-integration.md`, `qa-security.md`, `qa-api-contract.md`, `qa-test.md`, `qa-browser.md`) 종합 검토
 - state contract가 있으면 `qa-state.md`를 추가 검토
 - ingestion/runtime data contract가 있으면 `qa-data-quality.md`를 추가 검토
-- analytics architecture가 있으면 `qa-analytics.md`를 추가 검토
 - locked profile이 `next-app-fullstack`이면 `qa-next-contract.md`, canonical `web-execution-plan.json`, target artifact inventory를 추가 검토
 - FAIL 항목이 있으면 해당 에이전트에 재작업 요청
 - versioned artifact/release policy가 있고 version/changelog 변경이 아직 필요하면 HANDOFF를 만들지 않는다. `version-analyzer`(분석) → `environment-scaffolder`(version·changelog 파일 반영)를 실행한 뒤 quality runner와 모든 영향받은 QA/manifest를 다시 생성하게 한다. 신규 private 앱은 자동 bump하지 않는다
@@ -43,7 +42,6 @@ readiness report는 HANDOFF 경로가 아니다 — HANDOFF.md는 여전히 gate
 - 필수 QA report/receipt 누락, 일반 QA의 FAIL·BLOCKED·NEEDS_REVIEW, stale receipt, test file 0개, manifest/report/source/package/workspace hash 불일치는 release 중단
 - local domain state의 데이터 손실 가능성, invariant 위반, 검증되지 않은 migration/recovery는 release 중단
 - external ingestion의 architecture drift, source authorization blocker, missing/empty/schema-invalid artifact fail-open, 검증되지 않은 atomic promotion/last-known-good, clean-build 불일치는 release 중단
-- analytics semantic contract, chart compatibility, dashboard revision/migration의 FAIL·BLOCKED 또는 `qa-analytics.md` 누락은 release 중단
 
 ## HANDOFF.md 구조
 
@@ -77,10 +75,6 @@ web-harness-script preview-server --project .   # http://localhost:4173
 1. React/Vite는 공개 API base URL 계약을, Next.js는 server-only/private env와 명시적으로 공개 가능한 `NEXT_PUBLIC_*` 계약을 구분한다
 2. `/wh change GET /api/metrics를 실제 API로 연동해줘` 실행(플러그인 설치면 `/web-harness:wh change …`)
 3. The src/mocks/ folder is enabled only in development, so production is unaffected
-
-timeseries architecture가 있으면 snapshot endpoint, stream endpoint, message version, cursor/resume retention, heartbeat, aggregation resolution, staging performance fixture를 함께 문서화한다.
-
-analytics architecture가 있으면 metric/dimension catalog, selected chart types, query budget, dashboard config version, Mock→real query endpoint 전환 순서를 함께 문서화한다.
 
 AI architecture가 있으면 model gateway, provider와 prompt version, tool scope·approval, data source·ACL, runtime budget, trace·redaction, eval baseline, Mock에서 실제 provider·tool로 전환하는 순서와 rollback을 함께 문서화한다.
 

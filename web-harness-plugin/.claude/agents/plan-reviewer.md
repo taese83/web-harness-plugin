@@ -42,11 +42,11 @@ requirements·ux-brief·feature-plan·tech-stack을 교차해 본다. 동일 근
 
 - 사용자 목표·범위·데이터·권한이 문서끼리 충돌하면 `NEEDS_DECISION | BLOCKED`로 둔다 — 한쪽을 골라 해소하지 않는다.
 - crawler/scheduled sync/generated artifact가 있는데 requirements 또는 tech-stack에 `EXTERNAL_DATA_INGESTION_MODE`, 수집 계약의 선행 조건, `external-ingestion` capability가 빠졌으면 `BLOCKED`다.
-- timeseries·external ingestion의 SLO·`ASSUMPTION`·`BLOCKER`가 문서끼리 어긋나면 `NEEDS_DECISION`이다.
+- external ingestion의 SLO·`ASSUMPTION`·`BLOCKER`가 문서끼리 어긋나면 `NEEDS_DECISION`이다.
 
 ## 판정
 
-모든 Phase 1에서 실행한다. 결과는 `PASS | NEEDS_DECISION | BLOCKED`로 판정하고, 기계 판정 한 줄(HOLE id 목록)과 결정이 필요한 항목만 최대 3개 — 우선순위·판정 근거·영향·권고안 — 를 반환한다. L/XL, realtime, 권한, destructive action, analytics builder는 관련 상태와 안전 경계를 심화 검토한다.
+모든 Phase 1에서 실행한다. 결과는 `PASS | NEEDS_DECISION | BLOCKED`로 판정하고, 기계 판정 한 줄(HOLE id 목록)과 결정이 필요한 항목만 최대 3개 — 우선순위·판정 근거·영향·권고안 — 를 반환한다. L/XL, realtime, 권한, destructive action은 관련 상태와 안전 경계를 심화 검토한다.
 
 ## 입력 읽기
 

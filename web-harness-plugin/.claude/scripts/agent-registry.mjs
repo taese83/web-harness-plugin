@@ -4,7 +4,6 @@ const appPath = source => new RegExp(`^${appPrefix}${source}`)
 const exactAppFile = source => appPath(`${source}$`)
 
 export const VERIFIER_AGENTS = new Set([
-  'analytics-verifier',
   'api-contract-verifier',
   'browser-verifier',
   'code-reviewer',
@@ -19,7 +18,6 @@ export const VERIFIER_AGENTS = new Set([
   'security-reviewer',
   'seo-verifier',
   'state-invariant-verifier',
-  'timeseries-verifier',
   'ux-validator',
   'version-analyzer',
   'visual-regression-verifier',
@@ -113,7 +111,6 @@ export const AGENT_OWNERSHIP = {
   // 구조 지시 빌더 6종을 걷어낸 이유가 바로 그것이었다(2026-08-26).
   developer: [],
 
-  'analytics-domain-architect': [/^_workspace\/02_design\/analytics-architecture\.md$/],
   'api-schema-designer': [/^_workspace\/02_design\/api-schema(?:\.md|\/.+)$/],
   'component-designer': [/^_workspace\/02_design\/component-spec(?:\.md|\/.+)$/],
   'design-preview-builder': [/^_workspace\/02_design\/preview\//],
@@ -148,7 +145,6 @@ export const AGENT_OWNERSHIP = {
     /^_workspace\/01_plan\/(?:decision-log|requirements|ux-brief|tech-stack|feature-plan)(?:\.md|\/.+)$/,
     /^_workspace\/02_design\/(?:design-system|layout-spec|component-spec|api-schema)(?:\.md|\/.+)$/],
   'tech-advisor': [/^_workspace\/01_plan\/tech-stack(?:\.md|\/.+)$/],
-  'timeseries-architect': [/^_workspace\/02_design\/timeseries-architecture\.md$/],
   'visual-baseline-manager': [/^_workspace\/02_design\/visual-baseline-manifest\.json$/],
   'visual-contract-designer': [
     /^_workspace\/02_design\/visual-qa-contract\.json$/,

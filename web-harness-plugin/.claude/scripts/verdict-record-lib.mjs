@@ -21,11 +21,9 @@ export const VERDICT_REPORT_BY_AGENT = {
   'data-access-verifier': 'data-access',
   'state-invariant-verifier': 'state',
   'data-quality-verifier': 'data-quality',
-  'analytics-verifier': 'analytics',
   'visual-regression-verifier': 'visual',
   'performance-verifier': 'performance',
   'seo-verifier': 'seo',
-  'timeseries-verifier': 'timeseries',
   'next-contract-verifier': 'next-contract',
 }
 
